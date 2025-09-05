@@ -1024,9 +1024,10 @@ class KnowledgeBase:
         properties_inventory_entries_all = {}
         for property_name, included_files in inclusions.items():
 
-            properties_inventory_sizes, properties_inventory_entries = (
-                self.get_inventory_size_and_entries_from_properties(included_files)
-            )
+            (
+                properties_inventory_sizes,
+                properties_inventory_entries,
+            ) = self.get_inventory_size_and_entries_from_properties(included_files)
 
             if properties_inventory_sizes == {}:
                 properties_inventory_sizes[property_name] = {"x": 0, "y": 0}

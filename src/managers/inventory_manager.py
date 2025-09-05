@@ -149,9 +149,9 @@ class InventoryManager(GameManager):
         weapons_in_inventory = squad_member_inventory.find_gun_entries_in_inventory()
         weapons = [weapon_info.weapon_name for weapon_info in weapons_in_inventory]
 
-        standard_inventory: list[BreedItemInfo] = (
-            self.knowledge_base.breeds_inventories[squad_member_breed]
-        )
+        standard_inventory: list[
+            BreedItemInfo
+        ] = self.knowledge_base.breeds_inventories[squad_member_breed]
 
         if not weapons:
             self.refill_weapons(
@@ -190,9 +190,9 @@ class InventoryManager(GameManager):
         squad_member_inventory.count_items_in_inventory()
         squad_member_breed = squad_member_inventory.entity_breed
 
-        standard_inventory: list[BreedItemInfo] = (
-            self.knowledge_base.vehicle_inventories[squad_member_breed]
-        )
+        standard_inventory: list[
+            BreedItemInfo
+        ] = self.knowledge_base.vehicle_inventories[squad_member_breed]
 
         self.refill_equipment(
             squad_member_inventory=squad_member_inventory,
