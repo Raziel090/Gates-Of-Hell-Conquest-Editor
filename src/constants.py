@@ -92,7 +92,7 @@ Y_SIZE_KEY = "y"
 
 # GUI Constants
 THEME_NAME = "equilux"
-WINDOW_TITLE = "Inventory Manager"
+WINDOW_TITLE = "Gates of Hell: Ostfront Campaign Editor"
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
