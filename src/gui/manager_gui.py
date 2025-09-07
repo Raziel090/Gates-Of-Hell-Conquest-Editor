@@ -4,14 +4,13 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 import tkinter as tk
 from src.console_logger import ConsoleLogger
-from src.constants import INVENTORY_MANAGER_CACHE
+from src.constants import CAMPAIGN_MANAGER_CACHE
 from src.entity_inventory import EntityInventory
 from src.managers.game_manager import GameManager
 
 # UI Text Constants
 DEFAULT_MANAGER_NAME = "Basic Manager"
 SPECIFY_GAME_DIR_BUTTON = "Specify Game Directory"
-SPECIFY_DATA_DIR_BUTTON = "Specify Extracted Data Directory"
 LOAD_CAMPAIGN_BUTTON = "Load Campaign Save"
 SAVE_CHANGES_BUTTON = "Save Changes"
 RESTORE_BACKUP_BUTTON = "Restore Backup"
@@ -26,10 +25,6 @@ CAMPAIGN_FILE_INVALID = "Campaign File: Invalid"
 GAME_DIR_TOOLTIP = (
     "Specify the path to game installation directory.\n"
     "It should contain folders such as 'resource', 'binaries' and 'localizations'.\n"
-)
-DATA_DIR_TOOLTIP = (
-    "Specify the path to a directory with previously extracted data.\n"
-    "It should contain folders such as 'entity', 'properties' and 'set'.\n"
 )
 CAMPAIGN_TOOLTIP = (
     "Load conquest save file to edit.\n"
@@ -237,17 +232,6 @@ class ManagerGUI:
         self.create_tooltip(
             load_game_install_dir_button,
             text=GAME_DIR_TOOLTIP,
-        )
-
-        load_data_dir_button = ttk.Button(
-            parent_frame,
-            text=SPECIFY_DATA_DIR_BUTTON,
-            command=self.load_data_dir,
-        )
-        load_data_dir_button.pack(pady=10, padx=10, fill=FILL_X)
-        self.create_tooltip(
-            load_data_dir_button,
-            text=DATA_DIR_TOOLTIP,
         )
 
         load_campaign_button = ttk.Button(
@@ -550,7 +534,7 @@ class ManagerGUI:
 
     def load_cache(self) -> dict:
         """Load cached settings from file."""
-        cache_file = Path(os.getcwd()) / INVENTORY_MANAGER_CACHE
+        cache_file = Path(os.getcwd()) / CAMPAIGN_MANAGER_CACHE
         default_cache = {
             GAME_INSTALL_DIR_KEY: "",
             CAMPAIGN_FILE_PATH_KEY: "",
@@ -571,7 +555,7 @@ class ManagerGUI:
 
     def save_cache(self) -> None:
         """Save current settings to cache file."""
-        cache_file = Path(os.getcwd()) / f"{self.__class__.__name__.lower()}_cache.json"
+        cache_file = Path(os.getcwd()) / CAMPAIGN_MANAGER_CACHE
         cache = {
             GAME_INSTALL_DIR_KEY: self.game_install_dir,
             CAMPAIGN_FILE_PATH_KEY: self.campaign_file_path,
@@ -633,18 +617,13 @@ class ManagerGUI:
         dialog.transient(self.parent_notebook)
         dialog.grab_set()
 
-        # Center the dialog on the parent window
-        x = (
-            self.parent_notebook.winfo_x()
-            + (self.parent_notebook.winfo_width() // 2)
-            - 150
-        )
-        y = (
-            self.parent_notebook.winfo_y()
-            + (self.parent_notebook.winfo_height() // 2)
-            - 75
-        )
-        dialog.geometry(f"+{x}+{y}")
+        # Center on screen
+        dialog.update_idletasks()  # Ensure geometry is calculated
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
 
         # Configure with the same theme
         style = ttk.Style(dialog)
@@ -734,6 +713,8 @@ class ManagerGUI:
 
             with open(campaign_status_file_path, "w") as original_file:
                 original_file.write(content)
+
+            self.prepare_manager()
 
             self.logger.log("Backup restored successfully.")
         except Exception as e:

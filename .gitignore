@@ -30,6 +30,8 @@ test_working_data/
 test_data/
 src/build/
 src/dist/
+data/
+GUI TESTS/
 *.bak
 *.tmp
 

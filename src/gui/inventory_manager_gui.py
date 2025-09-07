@@ -22,13 +22,8 @@ from src.constants import (
     SELECT_SQUAD_MEMBER_LABEL,
     UNIT_TYPE_LABEL,
     UNIT_NAME_LABEL,
-    UNIT_INVENTORY_DETAILS_LABEL,
     UNKNOWN_LABEL,
-    CACHE_LABEL_TEXT,
-    CURRENT_UNIT_LABEL_TEXT,
-    UNIT_NAME_LABEL_TEXT,
     UNIT_INVENTORY_LABEL_TEXT,
-    UNKNOWN_UNIT_TEXT,
     # Resource Display
     MP_ICON_TEXT,
     AP_ICON_TEXT,
@@ -179,7 +174,12 @@ class InventoryManagerGUI(ManagerGUI):
         )
 
         # Create middle frame for comboboxes and interactive elements
-        middle_frame = ttk.LabelFrame(parent_frame, text=SELECTION_FRAME_TITLE)
+        middle_frame = ttk.LabelFrame(
+            parent_frame,
+            text=SELECTION_FRAME_TITLE,
+            width=220,
+            height=400,
+        )
         middle_frame.pack(
             side=SIDE_LEFT,
             fill=FILL_BOTH,
@@ -187,6 +187,7 @@ class InventoryManagerGUI(ManagerGUI):
             padx=PADX_SMALL,
             pady=PADY_MEDIUM,
         )
+        middle_frame.pack_propagate(False)
 
         # Create console frame (right side)
         console_frame = ttk.LabelFrame(parent_frame, text=CONSOLE_OUTPUT_TITLE)
@@ -581,6 +582,9 @@ class InventoryManagerGUI(ManagerGUI):
 
         self.inventory_manager.refill_missing_squad_members(squad_id)
 
+        self.inventory_manager.prepare_squads_and_inventories()
+        self.populate_gui_elements_with_data()
+
         self.update_resources(
             self.inventory_manager.knowledge_base.campaign_status_info.mp,
             self.inventory_manager.knowledge_base.campaign_status_info.ap,
@@ -604,8 +608,15 @@ class InventoryManagerGUI(ManagerGUI):
         try:
             self.inventory_manager.save_changes()
             self.logger.log(CHANGES_SAVED_MSG)
-            self.prepare_manager()
-        except Exception as e:
+
+            self.inventory_manager.prepare_squads_and_inventories()
+            self.populate_gui_elements_with_data()
+            self.update_resources(
+                self.inventory_manager.knowledge_base.campaign_status_info.mp,
+                self.inventory_manager.knowledge_base.campaign_status_info.ap,
+            )
+        except KeyError as e:
+            # except Exception as e:
             self.logger.log(f"{ERROR_SAVING_CHANGES_MSG} {str(e)}")
 
     def update_resources(self, mp: float, ap: float) -> None:

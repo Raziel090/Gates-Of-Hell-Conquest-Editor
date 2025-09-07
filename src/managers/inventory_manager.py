@@ -128,6 +128,7 @@ class InventoryManager(GameManager):
 
         self.squad_members_ids: list[str] = []
         self.new_unit_entries: list[str] = []
+        self.new_units_resupplied_squads: list[int] = []
 
     def prepare_squads_and_inventories(self) -> None:
         """Prepare squad data and collect all member IDs."""
@@ -149,9 +150,9 @@ class InventoryManager(GameManager):
         weapons_in_inventory = squad_member_inventory.find_gun_entries_in_inventory()
         weapons = [weapon_info.weapon_name for weapon_info in weapons_in_inventory]
 
-        standard_inventory: list[
-            BreedItemInfo
-        ] = self.knowledge_base.breeds_inventories[squad_member_breed]
+        standard_inventory: list[BreedItemInfo] = (
+            self.knowledge_base.breeds_inventories[squad_member_breed]
+        )
 
         if not weapons:
             self.refill_weapons(
@@ -190,9 +191,9 @@ class InventoryManager(GameManager):
         squad_member_inventory.count_items_in_inventory()
         squad_member_breed = squad_member_inventory.entity_breed
 
-        standard_inventory: list[
-            BreedItemInfo
-        ] = self.knowledge_base.vehicle_inventories[squad_member_breed]
+        standard_inventory: list[BreedItemInfo] = (
+            self.knowledge_base.vehicle_inventories[squad_member_breed]
+        )
 
         self.refill_equipment(
             squad_member_inventory=squad_member_inventory,
@@ -871,13 +872,22 @@ class InventoryManager(GameManager):
                 "Squad has maximum number of members... Cannot add more members!"
             )
             return
+        if squad_id in self.new_units_resupplied_squads:
+            self.logger.log("Squad has already been resupplied with new members!")
+            return
 
         new_unit_entries = []
         total_cost = 0.0
         for standard_member, standard_member_count in standard_squad_members.items():
             current_member_count = member_counts.get(standard_member, 0)
+
             if current_member_count < standard_member_count:
                 for _ in range(standard_member_count - current_member_count):
+                    if (
+                        number_of_current_squad_members + len(new_unit_entries)
+                        >= number_of_standard_squad_members
+                    ):
+                        break
                     breed = standard_member
                     cost = 0.0
                     if f"mp/" in standard_member:
@@ -910,6 +920,8 @@ class InventoryManager(GameManager):
                     new_unit_entries.append(unit_entry)
                     self.knowledge_base.campaign_status_info.mp -= cost
                     total_cost += cost
+                    if squad_id not in self.new_units_resupplied_squads:
+                        self.new_units_resupplied_squads.append(squad_id)
 
         self.new_unit_entries.extend(new_unit_entries)
 

@@ -31,7 +31,7 @@ ENTITY_VEHICLE_PATH = "entity/-vehicle"
 PROPERTIES_PATH = "properties"
 
 # Cache files
-INVENTORY_MANAGER_CACHE = "inventory_manager_cache.json"
+CAMPAIGN_MANAGER_CACHE = "campaign_manager_cache.json"
 
 # Data files
 ITEM_SIZES_FILE = "item_sizes.json"
@@ -118,9 +118,6 @@ READONLY_STATE = "readonly"
 PACK_FILL_BOTH = "both"
 PACK_EXPAND_TRUE = True
 
-# String Format Templates
-GEOMETRY_FORMAT = "{width}x{height}+{x}+{y}"
-
 # Numeric Constants
 CENTER_DIVISOR = 2
 COMBOBOX_WIDTH = 30
@@ -162,9 +159,6 @@ DATA_DIR_PATH_KEY = "data_dir_path"
 
 # Regex Patterns
 SQUAD_INFO_PATTERN = r"\{(.*?)\}"
-INVENTORY_SECTION_PATTERN = (
-    r"(\{Inventory {}\n\s+\{box\n\s+\{clear\}(?:.*?\n)+?\s+\}\n\s+\})"
-)
 SUPPLIES_PATTERN = r'\{\s*Extender\s+"supply_zone"[\s\n]+\{enabled\}[\s\n]+\{current\s+(\d+)\}[\s\n]+\}'
 RESOURCES_PATTERN = r'\{\s*Extender\s+"resources"[\s\n]+\{current\s+(\d+)\}[\s\n]+\}'
 FUEL_PATTERN = r"\{\s*FuelBag\s*\{\s*Remain\s+([\d.]+)\s*\}\s*\}"
@@ -173,11 +167,6 @@ SAVE_SQUADS_PATTERN = r"(\t\{CampaignSquads\n)(.*?)(\n\t\})"
 USER_PLAYER_PATTERN = r'(\t\{Tags "_user" "player")'
 MP_STATUS_PATTERN = r"\{mp\s+\d+\.?\d*\}"
 AP_STATUS_PATTERN = r"\{ap\s+\d+\.?\d*\}"
-
-# Human/Entity regex patterns
-HUMAN_RESOURCES_PATTERN = r'(\{Human\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{Extender\s+"resources"\s*\{Resources\s*)\{current\s+\d+\}(\s*\}\s*\}[\s\S]*?\})'
-ENTITY_SUPPLIES_PATTERN = r'(\{Entity\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{Extender\s+"supply_zone"\s*\{enabled\}\s*)\{current\s+\d+\}(\s*\}[\s\S]*?\})'
-ENTITY_FUEL_PATTERN = r'(\{Entity\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{Chassis\s*\{FuelBag\s*)\{Remain\s+[\d.]+\}(\s*\}\s*\}[\s\S]*?\})'
 
 # Item and inventory patterns
 QUOTE_ITEM_PATTERN = r'\{item(?:\s+"[^"]+")+'
@@ -188,7 +177,6 @@ CELL_VALUES_PATTERN = r"\d{1,2}"
 FILL_AMOUNT_PATTERN = r"(\d+)(\s*{cell)"
 
 # Replacement templates
-CURRENT_VALUE_REPLACEMENT = r"\g<1>{current {}}\g<2>"
 MP_VALUE_REPLACEMENT = "{{mp {}}}"
 AP_VALUE_REPLACEMENT = "{{ap {}}}"
 SECTION_REPLACEMENT = "\t{}\n\\1"

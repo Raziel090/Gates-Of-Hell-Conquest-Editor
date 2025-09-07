@@ -11,6 +11,7 @@ from src.entity_inventory import EntityInventory
 from src.knowledge_base import KnowledgeBase
 from src.constants import (
     # File and directory names
+    BACKUP_PATTERN,
     CAMPAIGN_DIR,
     CAMPAIGN_FILE,
     STATUS_FILE,
@@ -26,7 +27,6 @@ from src.constants import (
     INC_EXTENSION,
     EXT_EXTENSION,
     BAK_EXTENSION,
-    BACKUP_PATTERN,
     # File operations
     READ_MODE,
     WRITE_MODE,
@@ -40,7 +40,6 @@ from src.constants import (
     TAB_CLOSE,
     # Regex patterns
     SQUAD_INFO_PATTERN,
-    INVENTORY_SECTION_PATTERN,
     SUPPLIES_PATTERN,
     RESOURCES_PATTERN,
     FUEL_PATTERN,
@@ -49,17 +48,12 @@ from src.constants import (
     USER_PLAYER_PATTERN,
     MP_STATUS_PATTERN,
     AP_STATUS_PATTERN,
-    HUMAN_RESOURCES_PATTERN,
-    ENTITY_SUPPLIES_PATTERN,
-    ENTITY_FUEL_PATTERN,
     # Replacement templates
-    CURRENT_VALUE_REPLACEMENT,
     MP_VALUE_REPLACEMENT,
     AP_VALUE_REPLACEMENT,
     SECTION_REPLACEMENT,
     # Logging messages
     EXTRACTED_MESSAGE,
-    ALREADY_EXISTS_MESSAGE,
     OVERWRITING_MESSAGE,
     BACKUP_EXISTS_MESSAGE,
     STATUS_BACKUP_EXISTS_MESSAGE,
@@ -75,8 +69,6 @@ from src.constants import (
     # Other constants
     RESUPPLY_FILENAME,
     QUOTE_CHAR,
-    NEWLINE,
-    TAB,
     ANIMATION_KEYWORD,
     CURLY_BRACES,
     NEWLINE_JOIN,
@@ -154,11 +146,6 @@ class DataManager:
                     EXTRACTED_MESSAGE.format(SET_STUFF_PATH + "/", set_stuff_path)
                 )
 
-        else:
-            self.logger.log(
-                ALREADY_EXISTS_MESSAGE.format(SET_STUFF_PATH + "/", set_stuff_path)
-            )
-
     def extract_set_dynamic_campaign_from_game_data(self) -> None:
         """Extract set/dynamic_campaign data from gamelogic archive."""
         set_dynamic_campaign_path = self.data_dir_path / SET_DYNAMIC_CAMPAIGN_PATH
@@ -173,13 +160,6 @@ class DataManager:
                     )
                 )
 
-        else:
-            self.logger.log(
-                ALREADY_EXISTS_MESSAGE.format(
-                    SET_DYNAMIC_CAMPAIGN_PATH + "/", set_dynamic_campaign_path
-                )
-            )
-
     def extract_set_multiplayer_units_conquest_from_game_data(self) -> None:
         """Extract set/multiplayer/units/conquest data from gamelogic archive."""
         set_mp_units_conquest_path = self.data_dir_path / SET_MULTIPLAYER_CONQUEST_PATH
@@ -193,13 +173,6 @@ class DataManager:
                         SET_MULTIPLAYER_CONQUEST_PATH + "/", set_mp_units_conquest_path
                     )
                 )
-
-        else:
-            self.logger.log(
-                ALREADY_EXISTS_MESSAGE.format(
-                    SET_MULTIPLAYER_CONQUEST_PATH + "/", set_mp_units_conquest_path
-                )
-            )
 
     def extract_campaign_files(self) -> None:
         """Extract campaign files from save archive to working directory."""
@@ -222,11 +195,6 @@ class DataManager:
                 self.logger.log(
                     EXTRACTED_MESSAGE.format(SET_BREED_MP_PATH, set_breed_path)
                 )
-
-        else:
-            self.logger.log(
-                ALREADY_EXISTS_MESSAGE.format(SET_BREED_MP_PATH, set_breed_path)
-            )
 
     def extract_squads_information(
         self, keep_deceased_members: bool = False
@@ -373,11 +341,6 @@ class DataManager:
                     EXTRACTED_MESSAGE.format("entity/-vehicles/", entity_vehicle_path)
                 )
 
-        else:
-            self.logger.log(
-                ALREADY_EXISTS_MESSAGE.format("entity/-vehicles/", entity_vehicle_path)
-            )
-
     def extract_properties_from_game_data(self) -> None:
         """Extract properties data from properties archive."""
         properties_path = self.data_dir_path / PROPERTIES_PATH
@@ -396,11 +359,6 @@ class DataManager:
                 self.logger.log(
                     EXTRACTED_MESSAGE.format(PROPERTIES_PATH + "/", self.data_dir_path)
                 )
-
-        else:
-            self.logger.log(
-                ALREADY_EXISTS_MESSAGE.format(PROPERTIES_PATH + "/", self.data_dir_path)
-            )
 
     def create_campaign_file_backup(self) -> None:
         """Create backup copy of campaign data file."""
@@ -483,7 +441,7 @@ class DataManager:
             result = self.add_inventory_section(content, replacement)
         else:
             # Pattern to match the entire inventory block with the specified ID
-            pattern = INVENTORY_SECTION_PATTERN.format(inventory_id)
+            pattern = rf"(\{{Inventory {inventory_id}\n\s+\{{box\n\s+\{{clear\}}(?:.*?\n)+?\s+\}}\n\s+\}})"
 
             # Replace the matched section with the new content
             result = re.sub(pattern, replacement, content, flags=re.DOTALL)
@@ -506,12 +464,10 @@ class DataManager:
         escaped_id = re.escape(entity_inventory.entity_id)
 
         # Pattern that captures everything before and after the current value
-        pattern = HUMAN_RESOURCES_PATTERN.format(
-            escaped_type=escaped_type, escaped_id=escaped_id
-        )
+        pattern = rf'(\{{Human\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{{Extender\s+"resources"\s*\{{Resources\s*)\{{current\s+\d+\}}(\s*\}}\s*\}}[\s\S]*?\}})'
 
         # Replacement with new current value
-        replacement = CURRENT_VALUE_REPLACEMENT.format(entity_inventory.resources)
+        replacement = rf"\g<1>{{current {entity_inventory.resources}}}\g<2>"
 
         # Perform the replacement
         updated_content = re.sub(pattern, replacement, content)
@@ -534,12 +490,10 @@ class DataManager:
         escaped_id = re.escape(entity_inventory.entity_id)
 
         # Pattern to find and replace the supply_zone current value within the specific Entity block
-        pattern = ENTITY_SUPPLIES_PATTERN.format(
-            escaped_type=escaped_type, escaped_id=escaped_id
-        )
+        pattern = rf'(\{{Entity\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{{Extender\s+"supply_zone"\s*\{{enabled\}}\s*)\{{current\s+\d+\}}(\s*\}}[\s\S]*?\}})'
 
         # Replacement with new current value
-        replacement = CURRENT_VALUE_REPLACEMENT.format(entity_inventory.supplies)
+        replacement = rf"\g<1>{{current {entity_inventory.supplies}}}\g<2>"
 
         # Perform the replacement
         updated_content = re.sub(pattern, replacement, content)
@@ -562,12 +516,10 @@ class DataManager:
         escaped_id = re.escape(entity_inventory.entity_id)
 
         # Pattern to find and replace the FuelBag Remain value within the specific Entity block
-        pattern = ENTITY_FUEL_PATTERN.format(
-            escaped_type=escaped_type, escaped_id=escaped_id
-        )
+        pattern = rf'(\{{Entity\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{{Chassis\s*\{{FuelBag\s*)\{{Remain\s+[\d.]+\}}(\s*\}}\s*\}}[\s\S]*?\}})'
 
         # Replacement with new remain value
-        replacement = CURRENT_VALUE_REPLACEMENT.format(entity_inventory.fuel)
+        replacement = rf"\g<1>{{current {entity_inventory.fuel}}}\g<2>"
 
         # Perform the replacement
         updated_content = re.sub(pattern, replacement, content)
@@ -706,7 +658,10 @@ class DataManager:
             self.create_archive_from_directory(
                 source_directory=self.campaign_data_dir_path,
                 archive_path=self.campaign_save_file_path,
-                exclude_patterns=[BAK_EXTENSION],  # Exclude backup files
+                exclude_patterns=[
+                    BAK_EXTENSION,
+                    BACKUP_PATTERN,
+                ],  # Exclude backup files
                 preserve_structure=False,  # Keep flat structure like original
             )
         except Exception as e:

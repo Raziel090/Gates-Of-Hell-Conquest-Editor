@@ -113,8 +113,11 @@ class UnitManagerGUI(ManagerGUI):
         left_frame.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True, padx=5, pady=10)
 
         # Create middle frame for comboboxes and interactive elements
-        middle_frame = ttk.LabelFrame(parent_frame, text=SELECTION_FRAME_LABEL)
+        middle_frame = ttk.LabelFrame(
+            parent_frame, text=SELECTION_FRAME_LABEL, width=220, height=400
+        )
         middle_frame.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True, padx=5, pady=10)
+        middle_frame.pack_propagate(False)
 
         # Create console frame (right side)
         console_frame = ttk.LabelFrame(parent_frame, text=CONSOLE_OUTPUT_FRAME_LABEL)
@@ -545,6 +548,7 @@ class UnitManagerGUI(ManagerGUI):
         try:
             self.unit_manager.save_changes()
             self.logger.log(CHANGES_SAVED_MSG)
-            self.prepare_manager()
+            self.unit_manager.prepare_squads_and_inventories(keep_deceased_members=True)
+            self.populate_gui_elements_with_data()
         except Exception as e:
             self.logger.log(ERROR_SAVING_CHANGES_MSG.format(str(e)))

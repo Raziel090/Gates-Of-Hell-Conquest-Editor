@@ -22,14 +22,11 @@ from src.constants import (
     RED_COLOR,
     GREEN_COLOR,
     # Style Properties
-    FOREGROUND_PROPERTY,
     BACKGROUND_PROPERTY,
     # Pack Options
     PACK_FILL_BOTH,
-    PACK_EXPAND_TRUE,
     # String Constants
     EMPTY_STRING,
-    GEOMETRY_FORMAT,
     # Numeric Constants
     CENTER_DIVISOR,
 )
@@ -94,4 +91,4 @@ class CampaignEditorGUI:
         y = (screen_height - height) // CENTER_DIVISOR
 
         # Set the geometry
-        self.master.geometry(GEOMETRY_FORMAT.format(width, height, x, y))
+        self.master.geometry(f"{width}x{height}+{x}+{y}")
