@@ -29,7 +29,9 @@ Thumbs.db
 test_working_data/
 test_data/
 src/build/
+build/
 src/dist/
+dist/
 data/
 GUI TESTS/
 *.bak

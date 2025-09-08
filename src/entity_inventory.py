@@ -238,7 +238,7 @@ class EntityInventory:
                             cell_x=start_cell_x,
                             cell_y=start_cell_y,
                         )
-
+        item_size = f"{x_size}x{y_size}"
         raise ItemFitError(
             ITEM_FIT_ERROR_TEMPLATE.format(item_name, item_size, self.entity_id)
         )
@@ -289,11 +289,14 @@ class EntityInventory:
             self.logger.log(ADD_ITEM_ERROR_TEMPLATE.format(err))
             return False
 
-    def fill_item_in_inventory(self, item_name: str, max_amount: int = 1) -> int:
+    def fill_item_in_inventory(
+        self, item_name: str, current_inventory_amount: int = 0, max_amount: int = 1
+    ) -> int:
         """Fill existing item in inventory up to maximum amount.
 
         Args:
             item_name (str): Name of item to fill
+            current_inventory_amount (int): Current amount of item in inventory (default: 0)
             max_amount (int): Maximum amount to fill to (default: 1)
 
         Returns:
@@ -314,7 +317,12 @@ class EntityInventory:
                 if match:
                     current_amount = match[0][0]
                     current_amount = int(current_amount)
-                    if current_amount < max_amount:
+                    if (
+                        max_amount - current_amount
+                        > max_amount - current_inventory_amount
+                    ):
+                        max_amount = max_amount - current_inventory_amount
+                    if current_amount <= max_amount:
                         inventory_entry = re.sub(
                             AMOUNT_REPLACEMENT_TEMPLATE.format(current_amount),
                             AMOUNT_REPLACEMENT_TEMPLATE.format(str(max_amount)),

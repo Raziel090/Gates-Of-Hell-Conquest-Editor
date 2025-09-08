@@ -83,9 +83,6 @@ LOG_NEW_UNIT_ENTRY = "Added new unit entry to squad {squad_name}: {unit_entry}"
 LOG_NEW_SQUAD_MEMBERS = (
     "Added {count} new squad members to squad {squad_name} for {cost} MP."
 )
-LOG_TOTAL_ITEM_ADDED = (
-    "Total {amount} of {item_name} for {cost} AP added to {entity_id}."
-)
 LOG_RESOURCES_ADDED = "Total {amount} resources added to {entity_id} for {cost} AP."
 LOG_SUPPLIES_ADDED = "Total {amount} supplies added to {entity_id} for {cost} AP."
 LOG_FUEL_ADDED = "Total {amount} fuel added to {entity_id} for {cost} AP."
@@ -569,7 +566,8 @@ class InventoryManager(GameManager):
             return False
 
         item_mass = self.knowledge_base.item_weights[item_name]
-        item_refill_cost = item_mass * (target_amount - current_amount)
+        item_refill_cost = round(item_mass * (target_amount - current_amount), 1)
+
         if self.knowledge_base.campaign_status_info.ap - item_refill_cost < 0:
             self.logger.log(
                 f"Not enough AP to refill {item_name} in {squad_member_inventory.entity_id} inventory."
@@ -581,12 +579,15 @@ class InventoryManager(GameManager):
         difference = 1  # Initialize to enter loop
         while difference > 0:
             difference = squad_member_inventory.fill_item_in_inventory(
-                item_name, max_amount=target_amount
+                item_name,
+                current_inventory_amount=current_amount,
+                max_amount=target_amount,
             )
             filled_amount += difference
+            current_amount += filled_amount
 
         # Add new stack if needed
-        remaining_amount = target_amount - current_amount - filled_amount
+        remaining_amount = target_amount - current_amount
         if remaining_amount > 0:
             squad_member_inventory.add_item_to_inventory(
                 item_name, amount=remaining_amount
@@ -680,7 +681,7 @@ class InventoryManager(GameManager):
             return
 
         item_mass = self.knowledge_base.item_weights[item_name]
-        item_refill_cost = item_mass * (target_amount - current_amount)
+        item_refill_cost = round(item_mass * (target_amount - current_amount), 1)
         if self.knowledge_base.campaign_status_info.ap - item_refill_cost < 0:
             self.logger.log(
                 f"Not enough AP to refill {item_name} in {squad_member_inventory.entity_id} inventory."
@@ -693,17 +694,20 @@ class InventoryManager(GameManager):
         filled_amount = 0
         while True:
             difference = squad_member_inventory.fill_item_in_inventory(
-                item_name, max_amount=item_block_size
+                item_name,
+                current_inventory_amount=current_amount,
+                max_amount=item_block_size,
             )
             if difference == 0:
                 break
             filled_amount += difference
+            current_amount += filled_amount
 
         # Add new stacks if needed
-        remaining_amount = target_amount - current_amount - filled_amount
+        remaining_amount = target_amount - current_amount
         if remaining_amount <= 0:
             self.logger.log(
-                f"Total {filled_amount} of {item_name} added to {squad_member_inventory.entity_id}."
+                f"Total {filled_amount} of {item_name} added to {squad_member_inventory.entity_id} for {item_refill_cost} AP."
             )
             return
 
@@ -802,6 +806,8 @@ class InventoryManager(GameManager):
             - squad_member_inventory.fuel,
             4,
         )
+        if missing_fuel <= 0:
+            return
         missing_fuel_cost = round(missing_fuel * 0.25, 1)
         if self.knowledge_base.campaign_status_info.ap - missing_fuel_cost < 0:
             self.logger.log(

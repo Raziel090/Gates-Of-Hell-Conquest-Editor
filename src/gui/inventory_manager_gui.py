@@ -442,7 +442,8 @@ class InventoryManagerGUI(ManagerGUI):
             squad_info.squad_name for squad_info in self.inventory_manager.squads
         ]
         self.squad_combo[COMBOBOX_VALUES_KEY] = squad_names
-        self.squad_combo.current(0)
+        if not self.squad_combo.current():
+            self.squad_combo.current(0)
 
     def squad_selected(self, _: tk.Event) -> None:
         """Handle squad selection event.
