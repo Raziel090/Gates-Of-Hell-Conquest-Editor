@@ -191,7 +191,7 @@ ENTITY_INVENTORY_STR_TEMPLATE = "EntityInventory(\n  squad={}\n  entity={}\n  en
 ITEM_ENTRY_PREFIX = "\t\t\t{item "
 ITEM_NAME_QUOTE_TEMPLATE = '"{}" '
 AMOUNT_FORMAT = "{} "
-CELL_FORMAT = "{{cell {} {}}}\n"
+CELL_FORMAT = "{{cell {} {}}}}}\n"
 AMOUNT_REPLACEMENT_TEMPLATE = " {} {{"
 
 # Inventory file format

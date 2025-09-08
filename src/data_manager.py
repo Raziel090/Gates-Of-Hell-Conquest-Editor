@@ -516,13 +516,13 @@ class DataManager:
         escaped_id = re.escape(entity_inventory.entity_id)
 
         # Pattern to find and replace the FuelBag Remain value within the specific Entity block
-        pattern = rf'(\{{Entity\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{{Chassis\s*\{{FuelBag\s*)\{{Remain\s+[\d.]+\}}(\s*\}}\s*\}}[\s\S]*?\}})'
+        pattern = rf'(\{{Entity\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{{Chassis[\s\S]*?\{{FuelBag[\s\S]*?)\{{Remain\s+[\d.]+\}}([\s\S]*?\}}\s*\}}[\s\S]*?\}})'
 
         # Replacement with new remain value
         replacement = rf"\g<1>{{Remain {entity_inventory.fuel}}}\g<2>"
 
         # Perform the replacement
-        updated_content = re.sub(pattern, replacement, content)
+        updated_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
 
         return updated_content
 
