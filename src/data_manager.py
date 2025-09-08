@@ -519,7 +519,7 @@ class DataManager:
         pattern = rf'(\{{Entity\s+"{escaped_type}"\s+{escaped_id}[\s\S]*?\{{Chassis\s*\{{FuelBag\s*)\{{Remain\s+[\d.]+\}}(\s*\}}\s*\}}[\s\S]*?\}})'
 
         # Replacement with new remain value
-        replacement = rf"\g<1>{{current {entity_inventory.fuel}}}\g<2>"
+        replacement = rf"\g<1>{{Remain {entity_inventory.fuel}}}\g<2>"
 
         # Perform the replacement
         updated_content = re.sub(pattern, replacement, content)
