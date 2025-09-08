@@ -442,8 +442,18 @@ class InventoryManagerGUI(ManagerGUI):
             squad_info.squad_name for squad_info in self.inventory_manager.squads
         ]
         self.squad_combo[COMBOBOX_VALUES_KEY] = squad_names
-        if not self.squad_combo.current():
+        if self.squad_combo.current() == -1:
             self.squad_combo.current(0)
+
+        squad_id = self.squad_combo.current()
+        squad_members = self.inventory_manager.squads[squad_id].squad_members
+        self.squad_member_combo[COMBOBOX_VALUES_KEY] = squad_members
+        if self.squad_member_combo.current() == -1:
+            self.squad_member_combo.current(0)
+
+        self.show_selected_unit_info(
+            self.inventory_manager, squad_id, self.squad_member_combo.get()
+        )
 
     def squad_selected(self, _: tk.Event) -> None:
         """Handle squad selection event.
