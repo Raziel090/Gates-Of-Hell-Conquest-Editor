@@ -626,7 +626,6 @@ class InventoryManagerGUI(ManagerGUI):
                 self.inventory_manager.knowledge_base.campaign_status_info.ap,
             )
         except KeyError as e:
-            # except Exception as e:
             self.logger.log(f"{ERROR_SAVING_CHANGES_MSG} {str(e)}")
 
     def update_resources(self, mp: float, ap: float) -> None:

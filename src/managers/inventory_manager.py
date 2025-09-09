@@ -1015,7 +1015,8 @@ class InventoryManager(GameManager):
         self.data_manager.create_campaign_status_file_backup()
         for squad_inventory in self.squads_inventories:
             for _, inventory in squad_inventory.inventories.items():
-                self.data_manager.save_squad_member_inventory(inventory)
+                if inventory.inventory_entries:
+                    self.data_manager.save_squad_member_inventory(inventory)
 
         if self.new_unit_entries:
             self.data_manager.save_new_squad_members(
