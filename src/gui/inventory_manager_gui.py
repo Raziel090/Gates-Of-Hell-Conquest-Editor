@@ -593,7 +593,6 @@ class InventoryManagerGUI(ManagerGUI):
 
         self.inventory_manager.refill_missing_squad_members(squad_id)
 
-        self.inventory_manager.prepare_squads_and_inventories()
         self.populate_gui_elements_with_data()
 
         self.update_resources(
