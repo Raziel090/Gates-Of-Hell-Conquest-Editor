@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-gates-of-hell-conquest-editor = "gates_of_hell_conquest_editor:main"
+gates-of-hell-conquest-editor = "main:main"
 
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]
