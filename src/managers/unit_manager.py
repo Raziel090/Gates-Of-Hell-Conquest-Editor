@@ -48,14 +48,14 @@ class UnitManager(GameManager):
         unit_squad_id: int,
         unit_id: int,
         target_squad_id: int,
-        target_unit_id: "int | None" = None,
+        target_unit_id: int | None = None,
         target_unit_position: int | None = None,
     ) -> None:
         """Move or exchange unit between squads.
 
         Args:
             unit_squad_id (int): Source squad identifier
-            unit_id (int): Unit identifier to move
+            unit_id (int): Unit identifier to move.
             target_squad_id (int): Target squad identifier
             target_unit_id (int | None): Target unit for exchange (optional)
             target_unit_position (int | None): Position in target squad (optional)
@@ -80,10 +80,10 @@ class UnitManager(GameManager):
                             unit_id,
                             target_squad_id,
                             target_unit_id,
-                            target_unit_position,
+                            target_unit_position or 0,
                         )
                     scan += 1
-                if CAMPAIGN_SQUADS_MARKER in line:
+                if line is not None and CAMPAIGN_SQUADS_MARKER in line:
                     reached_squads = True
                 print(line)
 
@@ -94,7 +94,7 @@ class UnitManager(GameManager):
         unit_squad_id: int,
         unit_id: int,
         target_squad_id: int,
-    ) -> None:
+    ) -> str:
         """Move unit from one squad to another.
 
         Args:
@@ -120,32 +120,39 @@ class UnitManager(GameManager):
         line: str,
         scan: int,
         unit_squad_id: int,
-        unit_id: str,
+        unit_id: int,
         target_squad_id: int,
-        target_unit_id: str,
+        target_unit_id: int,
         target_unit_position: int,
-    ) -> None:
+    ) -> str:
         """Exchange positions of two units between squads.
 
         Args:
             line (str): Current line being processed
             scan (int): Current squad index
             unit_squad_id (int): Source squad identifier
-            unit_id (str): Source unit identifier
+            unit_id (int): Source unit identifier
             target_squad_id (int): Target squad identifier
-            target_unit_id (str): Target unit identifier
+            target_unit_id (int): Target unit identifier
             target_unit_position (int): Position in target squad
 
         Returns:
             str: Modified line
         """
         if scan == unit_squad_id:
-            line = re.sub(unit_id, target_unit_id, line, count=REGEX_SINGLE_COUNT)
+            line = re.sub(
+                str(unit_id),
+                str(target_unit_id),
+                line,
+                count=REGEX_SINGLE_COUNT,
+            )
         elif scan == target_squad_id:
             line_split = line.split(SPACE_SEPARATOR)
             ids = line_split[LINE_SPLIT_START_INDEX:]
             ids[target_unit_position] = re.sub(
-                target_unit_id, unit_id, ids[target_unit_position]
+                str(target_unit_id),
+                str(unit_id),
+                ids[target_unit_position],
             )
             line = SPACE_SEPARATOR.join(line_split[:LINE_SPLIT_START_INDEX] + ids)
 

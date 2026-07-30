@@ -97,23 +97,23 @@ class KnowledgeBase:
 
         self.logger = logger
 
-        self.item_pattern_sizes = {}
-        self.item_sizes = {}
-        self.item_block_sizes = {}
-        self.breeds_inventories: dict[str, BreedItemInfo] = {}
-        self.vehicle_inventories: dict[str, BreedItemInfo] = {}
+        self.item_pattern_sizes: dict[str, dict[str, str]] = {}
+        self.item_sizes: dict[str, dict[str, str]] = {}
+        self.item_block_sizes: dict[str, str] = {}
+        self.breeds_inventories: dict[str, list[BreedItemInfo]] = {}
+        self.vehicle_inventories: dict[str, list[BreedItemInfo]] = {}
         self.weapons_info_list: list[WeaponInfo] = []
         self.weapons_list: list[str] = []
         self.vehicles_properties_lists: dict[str, list[str]] = {}
         self.vehicles_properties: dict[str, str] = {}
         self.vehicles_fuel_properties: dict[str, int] = {}
-        self.properties_inventory_sizes: dict[str, dict] = {}
+        self.properties_inventory_sizes: dict[str, dict[str, int]] = {}
         self.properties_inventory_entries: dict[str, list[str]] = {}
         self.squad_compositions: dict[str, SquadCompositionInfo] = {}
         self.infantry_costs: dict[str, float] = {}
         self.vehicles_costs: dict[str, float] = {}
-        self.campaign_status_info: CampaignStatusInfo = None
-        self.item_weights: dict[str, dict] = {}
+        self.campaign_status_info: CampaignStatusInfo | None = None
+        self.item_weights: dict[str, float] = {}
 
     def init_knowledge_base(self) -> None:
         """Initialize all knowledge base components by loading game data."""
@@ -434,7 +434,7 @@ class KnowledgeBase:
 
     def convert_breed_inventory_entry_to_game_item_info(
         self, breed_inventory_entry: str
-    ) -> BreedItemInfo:
+    ) -> BreedItemInfo | None:
         """Parse breed inventory entry into structured item information.
 
         Args:
@@ -559,7 +559,7 @@ class KnowledgeBase:
             if item_file_path_split[-2] != "stuff":
                 item_type = item_file_path_split[-2]
             if item_file_path_split[-3] != "stuff":
-                item_type = f"{item_file_path_split[-3]}\{item_type}"
+                item_type = f"{item_file_path_split[-3]}\\{item_type}"
 
             with open(item_file_path, "r") as item_file:
                 item_info = item_file.read()
@@ -624,7 +624,7 @@ class KnowledgeBase:
                     found_breeds.append(breed_name)
         return found_breeds
 
-    def find_weapon_in_weapons_info_list(self, weapon_name: str) -> WeaponInfo:
+    def find_weapon_in_weapons_info_list(self, weapon_name: str) -> WeaponInfo | None:
         """Find weapon information by weapon name.
 
         Args:
@@ -1100,7 +1100,7 @@ class KnowledgeBase:
 
     def process_squads_compositions_entires(
         self, squad_compositions_string_entries: list[str]
-    ) -> None:
+    ) -> dict[str, SquadCompositionInfo]:
         """Process squad composition entries from string data.
 
         Args:
@@ -1275,8 +1275,8 @@ class KnowledgeBase:
         self.infantry_costs = infantry_costs
 
     def handle_infantry_cost_exceptions(
-        self, infantry_costs: dict[str, int]
-    ) -> dict[str, int]:
+        self, infantry_costs: dict[str, float]
+    ) -> dict[str, float]:
         exceptions_names_costs = {
             "mp/rus/late/sapper_nco": 10,
             "mp/usa/mid/platoon_com": 15,

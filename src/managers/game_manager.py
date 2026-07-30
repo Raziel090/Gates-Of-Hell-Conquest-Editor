@@ -27,17 +27,17 @@ class GameManager:
 
     def __init__(
         self,
-        game_install_dir_path: str,
-        campaign_file_path: str,
-        data_dir_path: str,
+        game_install_dir_path: str | Path,
+        campaign_file_path: str | Path,
+        data_dir_path: str | Path,
         logger: ConsoleLogger,
     ) -> None:
         """Initialize GameManager with required paths.
 
         Args:
-            game_install_dir_path (str): Path to game installation directory
-            campaign_file_path (str): Path to campaign save file
-            data_dir_path (str): Path to working data directory
+            game_install_dir_path (str | Path): Path to game installation directory
+            campaign_file_path (str | Path): Path to campaign save file
+            data_dir_path (str | Path): Path to working data directory
             logger (ConsoleLogger): Logger instance for messages
         """
         gamelogic_file_path = (
@@ -122,7 +122,7 @@ class GameManager:
         Returns:
             SquadInventory: Squad inventory data for all valid members
         """
-        squad_inventories = SquadInventory(squad_id=squad_id, inventories={})
+        squad_inventories = SquadInventory(squad_id=squad_id)
         for squad_member_id in squad_members:
             if squad_member_id == DECEASED_MEMBER_ID:
                 continue
@@ -135,6 +135,9 @@ class GameManager:
                 squad_member_breed=squad_member_breed,
             )
 
-            squad_inventories.inventories[squad_member_id] = squad_member_inventory
+            squad_inventories.add_inventory(
+                squad_member_id=squad_member_id,
+                inventory=squad_member_inventory,
+            )
 
         return squad_inventories

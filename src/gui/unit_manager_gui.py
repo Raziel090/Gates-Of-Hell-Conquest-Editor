@@ -2,7 +2,11 @@
 
 from tkinter import ttk
 import tkinter as tk
+from typing import cast
+from src.gui.layout_utils import resolve_target_squad_id
 from src.gui.manager_gui import ManagerGUI
+from src.gui.unit_action_controller import UnitActionController
+from src.gui.unit_selection_controller import UnitSelectionController
 from src.managers.unit_manager import UnitManager
 
 
@@ -89,6 +93,8 @@ class UnitManagerGUI(ManagerGUI):
         super().__init__(parent_notebook=parent_notebook)
 
         self.manager_name = MANAGER_NAME
+        self.selection_controller = UnitSelectionController()
+        self.action_controller = UnitActionController()
 
     def create_gui(self) -> None:
         """Create the Unit Manager GUI interface."""
@@ -108,27 +114,24 @@ class UnitManagerGUI(ManagerGUI):
         parent_frame = ttk.Frame(tab_frame)
         parent_frame.pack(fill=FILL_BOTH, expand=True)
 
-        # Create left frame for buttons and labels
-        left_frame = ttk.LabelFrame(parent_frame, text=CONTROLS_FRAME_LABEL)
-        left_frame.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True, padx=5, pady=10)
-
-        # Create middle frame for comboboxes and interactive elements
-        middle_frame = ttk.LabelFrame(
-            parent_frame, text=SELECTION_FRAME_LABEL, width=220, height=400
+        left_frame, middle_frame, console_frame = self.create_standard_tab_layout(
+            parent_frame,
+            left_title=CONTROLS_FRAME_LABEL,
+            middle_title=SELECTION_FRAME_LABEL,
+            console_title=CONSOLE_OUTPUT_FRAME_LABEL,
+            left_pack_options={"padx": 5, "pady": 10},
+            middle_pack_options={"padx": 5, "pady": 10},
+            console_pack_options={"padx": 5, "pady": 10},
+            middle_width=220,
+            middle_height=400,
         )
-        middle_frame.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True, padx=5, pady=10)
-        middle_frame.pack_propagate(False)
-
-        # Create console frame (right side)
-        console_frame = ttk.LabelFrame(parent_frame, text=CONSOLE_OUTPUT_FRAME_LABEL)
-        console_frame.pack(side=SIDE_LEFT, fill=FILL_BOTH, expand=True, padx=5, pady=10)
 
         self.create_unit_manager_left_frame_content(left_frame)
         self.create_unit_manager_middle_frame_content(middle_frame)
         self.create_unit_manager_console_frame_content(console_frame)
 
         # Write initial message to console
-        self.logger.log(UNIT_MANAGER_STARTED_MSG)
+        self._log(UNIT_MANAGER_STARTED_MSG)
 
         # Load cache after logger is initialized
         cached_settings = self.load_cache()
@@ -295,8 +298,11 @@ class UnitManagerGUI(ManagerGUI):
         if (
             not self.game_install_dir and not self.data_dir_path
         ) or not self.campaign_file_path:
-            self.logger.log(SPECIFY_DIRECTORIES_MSG)
+            self._log(SPECIFY_DIRECTORIES_MSG)
             return
+
+        if self.logger is None:
+            raise RuntimeError("Console logger is not initialized.")
 
         self.unit_manager = UnitManager(
             game_install_dir_path=self.game_install_dir,
@@ -307,7 +313,7 @@ class UnitManagerGUI(ManagerGUI):
 
         self.unit_manager.prepare_squads_and_inventories(keep_deceased_members=True)
 
-        self.logger.log(UNIT_MANAGER_INITIALIZED_MSG)
+        self._log(UNIT_MANAGER_INITIALIZED_MSG)
 
         self.populate_gui_elements_with_data()
 
@@ -320,8 +326,11 @@ class UnitManagerGUI(ManagerGUI):
             0
         ].squad_members
         self.base_squad_member_combo.current(0)
-        self.target_squad_combo[COMBOBOX_VALUES_KEY] = squad_names
-        self.target_squad_combo.current(1)
+        target_squad_names = self.selection_controller.build_target_squad_names(
+            squad_names, 0
+        )
+        self.target_squad_combo[COMBOBOX_VALUES_KEY] = target_squad_names
+        self.target_squad_combo.current(0)
         self.target_squad_member_combo[COMBOBOX_VALUES_KEY] = self.unit_manager.squads[
             1
         ].squad_members
@@ -333,7 +342,8 @@ class UnitManagerGUI(ManagerGUI):
         Args:
             click_event (tk.Event): The event object (not used)
         """
-        squad_id: int = click_event.widget.current()
+        combobox = cast(ttk.Combobox, click_event.widget)
+        squad_id: int = combobox.current()
         self.base_squad_member_combo[COMBOBOX_VALUES_KEY] = self.unit_manager.squads[
             squad_id
         ].squad_members
@@ -345,21 +355,21 @@ class UnitManagerGUI(ManagerGUI):
         self.base_unit_type_label.config(text=unit_type)
 
         squad_names = [squad_info.squad_name for squad_info in self.unit_manager.squads]
-        squad_names.pop(squad_id)
-        self.target_squad_combo[COMBOBOX_VALUES_KEY] = squad_names
+        target_squad_names = self.selection_controller.build_target_squad_names(
+            squad_names, squad_id
+        )
+        self.target_squad_combo[COMBOBOX_VALUES_KEY] = target_squad_names
 
         target_squad_id = self.target_squad_combo.current()
 
         if self.target_squad_combo.current() == -1:
             self.target_squad_combo.current(0)
-        if target_squad_id >= squad_id:
-            target_squad_id += 1
+
+        target_squad_id = resolve_target_squad_id(target_squad_id, squad_id)
         if target_squad_id == squad_id:
             self.target_squad_combo.current(0)
 
-        target_squad_id = self.target_squad_combo.current()
-        if target_squad_id >= squad_id:
-            target_squad_id += 1
+        target_squad_id = resolve_target_squad_id(self.target_squad_combo.current(), squad_id)
 
         self.target_squad_member_combo[COMBOBOX_VALUES_KEY] = self.unit_manager.squads[
             target_squad_id
@@ -375,11 +385,11 @@ class UnitManagerGUI(ManagerGUI):
         self.target_unit_name_label.config(text=unit_name)
         self.target_unit_type_label.config(text=unit_type)
 
-    def base_unit_selected(self, _: tk.Event) -> None:
+    def base_unit_selected(self, event: tk.Event) -> None:
         """Handle base unit selection event.
 
         Args:
-            _ (tk.Event): The event object (not used)
+            event (tk.Event): The event object (not used)
         """
         unit_name, unit_type, _ = self.get_selected_unit_info(
             self.unit_manager,
@@ -395,10 +405,10 @@ class UnitManagerGUI(ManagerGUI):
         Args:
             click_event (tk.Event): The event object containing selection data
         """
-        squad_id: int = click_event.widget.current()
-
-        if squad_id >= self.base_squad_combo.current():
-            squad_id += 1
+        combobox = cast(ttk.Combobox, click_event.widget)
+        squad_id = combobox.current()
+        base_squad_id = self.base_squad_combo.current()
+        squad_id = resolve_target_squad_id(squad_id, base_squad_id)
 
         self.target_squad_member_combo[COMBOBOX_VALUES_KEY] = self.unit_manager.squads[
             squad_id
@@ -410,15 +420,15 @@ class UnitManagerGUI(ManagerGUI):
         self.target_unit_name_label.config(text=unit_name)
         self.target_unit_type_label.config(text=unit_type)
 
-    def target_unit_selected(self, _: tk.Event) -> None:
+    def target_unit_selected(self, event: tk.Event) -> None:
         """Handle target unit selection event.
 
         Args:
-            _ (tk.Event): The event object (not used)
+            event (tk.Event): The event object (not used)
         """
         target_squad_id = self.target_squad_combo.current()
-        if target_squad_id >= self.base_squad_combo.current():
-            target_squad_id += 1
+        base_squad_id = self.base_squad_combo.current()
+        target_squad_id = resolve_target_squad_id(target_squad_id, base_squad_id)
 
         unit_name, unit_type, _ = self.get_selected_unit_info(
             self.unit_manager,
@@ -437,7 +447,7 @@ class UnitManagerGUI(ManagerGUI):
         base_unit_id = self.base_squad_member_combo.get()
 
         if not base_unit_id:
-            self.logger.log(NO_UNIT_SELECTED_MSG)
+            self._log(NO_UNIT_SELECTED_MSG)
             return
 
         base_squad_name = self.unit_manager.squads[base_squad_id].squad_name
@@ -448,10 +458,15 @@ class UnitManagerGUI(ManagerGUI):
             base_unit_id,
         )
 
-        self.unit_manager.move_unit(
-            base_squad_id, base_unit_id, target_squad_id, None, None
+        self.action_controller.move_unit(
+            self.unit_manager,
+            base_squad_id,
+            int(base_unit_id),
+            target_squad_id,
+            None,
+            None,
         )
-        self.logger.log(
+        self._log(
             f"Moved unit '{base_unit_id}' ({base_unit_name}) from squad {base_squad_name} to {target_squad_name}."
         )
 
@@ -461,14 +476,15 @@ class UnitManagerGUI(ManagerGUI):
     def exchange_units(self) -> None:
         """Exchange positions of base unit and target unit."""
         base_squad_id = self.base_squad_combo.current()
-        target_squad_id = self.target_squad_combo.current()
-        if target_squad_id >= base_squad_id:
-            target_squad_id += 1
+        target_squad_id = self.action_controller.resolve_effective_target_squad_id(
+            self.target_squad_combo.current(),
+            base_squad_id,
+        )
         base_unit_id = self.base_squad_member_combo.get()
         target_unit_id = self.target_squad_member_combo.get()
 
         if not base_unit_id or not target_unit_id:
-            self.logger.log(UNITS_REQUIRED_FOR_EXCHANGE_MSG)
+            self._log(UNITS_REQUIRED_FOR_EXCHANGE_MSG)
             return
 
         base_squad_name = self.unit_manager.squads[base_squad_id].squad_name
@@ -485,17 +501,18 @@ class UnitManagerGUI(ManagerGUI):
         )
 
         if base_unit_id == target_unit_id and base_squad_id == target_squad_id:
-            self.logger.log(CANNOT_EXCHANGE_WITH_SELF_MSG)
+            self._log(CANNOT_EXCHANGE_WITH_SELF_MSG)
             return
 
-        self.unit_manager.move_unit(
+        self.action_controller.move_unit(
+            self.unit_manager,
             base_squad_id,
-            base_unit_id,
+            int(base_unit_id),
             target_squad_id,
-            target_unit_id,
+            int(target_unit_id),
             self.target_squad_member_combo.current(),
         )
-        self.logger.log(
+        self._log(
             f"Exchanged unit '{base_unit_id}' ({base_unit_name}) from squad {base_squad_name} with unit '{target_unit_id}' ({target_unit_name}) from squad {target_squad_name}."
         )
 
@@ -505,10 +522,10 @@ class UnitManagerGUI(ManagerGUI):
     def update_ui_after_action(self) -> None:
         """Refresh UI elements after unit operations."""
         base_squad_id = self.base_squad_combo.current()
-        target_squad_id = self.target_squad_combo.current()
-
-        if target_squad_id >= base_squad_id:
-            target_squad_id += 1
+        target_squad_id = self.action_controller.resolve_effective_target_squad_id(
+            self.target_squad_combo.current(),
+            base_squad_id,
+        )
 
         self.base_squad_member_combo[COMBOBOX_VALUES_KEY] = self.unit_manager.squads[
             base_squad_id
@@ -533,7 +550,7 @@ class UnitManagerGUI(ManagerGUI):
     def save_changes(self) -> None:
         """Save unit modifications to campaign file."""
         if not self.unit_manager:
-            self.logger.log(NO_MANAGER_INITIALIZED_MSG)
+            self._log(NO_MANAGER_INITIALIZED_MSG)
             return
 
         confirm = self.show_confirmation_dialog(
@@ -542,13 +559,13 @@ class UnitManagerGUI(ManagerGUI):
         )
 
         if not confirm:
-            self.logger.log(SAVE_CANCELLED_MSG)
+            self._log(SAVE_CANCELLED_MSG)
             return
 
         try:
             self.unit_manager.save_changes()
-            self.logger.log(CHANGES_SAVED_MSG)
+            self._log(CHANGES_SAVED_MSG)
             self.unit_manager.prepare_squads_and_inventories(keep_deceased_members=True)
             self.populate_gui_elements_with_data()
         except Exception as e:
-            self.logger.log(ERROR_SAVING_CHANGES_MSG.format(str(e)))
+            self._log(ERROR_SAVING_CHANGES_MSG.format(str(e)))

@@ -134,45 +134,48 @@ class DataManager:
         self.extract_set_multiplayer_units_conquest_from_game_data()
         self.extract_campaign_files()
 
+    def _extract_archive_subtree(
+        self,
+        archive_prefix: str,
+        destination_path: Path,
+        display_prefix: str,
+    ) -> None:
+        """Extract an archive subtree into the working data directory if needed."""
+        if os.path.exists(destination_path):
+            return
+
+        with zipfile.ZipFile(self.gamelogic_file_path) as archive:
+            for file in archive.namelist():
+                if file.startswith(archive_prefix):
+                    archive.extract(file, self.data_dir_path)
+            self.logger.log(EXTRACTED_MESSAGE.format(display_prefix, destination_path))
+
     def extract_set_stuff_from_game_data(self) -> None:
         """Extract set/stuff data from gamelogic archive."""
         set_stuff_path = self.data_dir_path / SET_STUFF_PATH
-        if not os.path.exists(set_stuff_path):
-            with zipfile.ZipFile(self.gamelogic_file_path) as archive:
-                for file in archive.namelist():
-                    if file.startswith(SET_STUFF_PATH + "/"):
-                        archive.extract(file, self.data_dir_path)
-                self.logger.log(
-                    EXTRACTED_MESSAGE.format(SET_STUFF_PATH + "/", set_stuff_path)
-                )
+        self._extract_archive_subtree(
+            archive_prefix=SET_STUFF_PATH + "/",
+            destination_path=set_stuff_path,
+            display_prefix=SET_STUFF_PATH + "/",
+        )
 
     def extract_set_dynamic_campaign_from_game_data(self) -> None:
         """Extract set/dynamic_campaign data from gamelogic archive."""
         set_dynamic_campaign_path = self.data_dir_path / SET_DYNAMIC_CAMPAIGN_PATH
-        if not os.path.exists(set_dynamic_campaign_path):
-            with zipfile.ZipFile(self.gamelogic_file_path) as archive:
-                for file in archive.namelist():
-                    if file.startswith(SET_DYNAMIC_CAMPAIGN_PATH + "/"):
-                        archive.extract(file, self.data_dir_path)
-                self.logger.log(
-                    EXTRACTED_MESSAGE.format(
-                        SET_DYNAMIC_CAMPAIGN_PATH + "/", set_dynamic_campaign_path
-                    )
-                )
+        self._extract_archive_subtree(
+            archive_prefix=SET_DYNAMIC_CAMPAIGN_PATH + "/",
+            destination_path=set_dynamic_campaign_path,
+            display_prefix=SET_DYNAMIC_CAMPAIGN_PATH + "/",
+        )
 
     def extract_set_multiplayer_units_conquest_from_game_data(self) -> None:
         """Extract set/multiplayer/units/conquest data from gamelogic archive."""
         set_mp_units_conquest_path = self.data_dir_path / SET_MULTIPLAYER_CONQUEST_PATH
-        if not os.path.exists(set_mp_units_conquest_path):
-            with zipfile.ZipFile(self.gamelogic_file_path) as archive:
-                for file in archive.namelist():
-                    if file.startswith(SET_MULTIPLAYER_CONQUEST_PATH + "/"):
-                        archive.extract(file, self.data_dir_path)
-                self.logger.log(
-                    EXTRACTED_MESSAGE.format(
-                        SET_MULTIPLAYER_CONQUEST_PATH + "/", set_mp_units_conquest_path
-                    )
-                )
+        self._extract_archive_subtree(
+            archive_prefix=SET_MULTIPLAYER_CONQUEST_PATH + "/",
+            destination_path=set_mp_units_conquest_path,
+            display_prefix=SET_MULTIPLAYER_CONQUEST_PATH + "/",
+        )
 
     def extract_campaign_files(self) -> None:
         """Extract campaign files from save archive to working directory."""
@@ -187,14 +190,11 @@ class DataManager:
     def extract_set_breed_from_game_data(self) -> None:
         """Extract set/breed/mp data from gamelogic archive."""
         set_breed_path = self.data_dir_path / SET_BREED_MP_PATH
-        if not os.path.exists(set_breed_path):
-            with zipfile.ZipFile(self.gamelogic_file_path) as archive:
-                for file in archive.namelist():
-                    if file.startswith(SET_BREED_MP_PATH):
-                        archive.extract(file, self.data_dir_path)
-                self.logger.log(
-                    EXTRACTED_MESSAGE.format(SET_BREED_MP_PATH, set_breed_path)
-                )
+        self._extract_archive_subtree(
+            archive_prefix=SET_BREED_MP_PATH,
+            destination_path=set_breed_path,
+            display_prefix=SET_BREED_MP_PATH,
+        )
 
     def extract_squads_information(
         self, keep_deceased_members: bool = False
@@ -309,6 +309,7 @@ class DataManager:
         Returns:
             str: Breed type of the squad member
         """
+        breed = ""
         with open(self.campaign_data_file_path, READ_MODE) as file:
             for line in file:
                 if squad_member_id in line:
@@ -633,16 +634,21 @@ class DataManager:
 
     def save_campaign_status_info(self) -> None:
         """Save campaign status information (MP and AP values) to status file."""
+        campaign_status_info = self.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self.logger.log("Campaign status information is not initialized.")
+            return
+
         with open(self.campaign_status_file_path, READ_MODE) as file:
             content = file.read()
 
             replacement = MP_VALUE_REPLACEMENT.format(
-                round(self.knowledge_base.campaign_status_info.mp, 2)
+                round(campaign_status_info.mp, 2)
             )
             updated_content = re.sub(MP_STATUS_PATTERN, replacement, content, 1)
 
             replacement = AP_VALUE_REPLACEMENT.format(
-                round(self.knowledge_base.campaign_status_info.ap, 2)
+                round(campaign_status_info.ap, 2)
             )
             updated_content = re.sub(AP_STATUS_PATTERN, replacement, updated_content, 1)
 
@@ -671,8 +677,8 @@ class DataManager:
         self,
         source_directory: Path,
         archive_path: Path,
-        include_patterns: list[str] = None,
-        exclude_patterns: list[str] = None,
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
         preserve_structure: bool = True,
     ) -> None:
         """Create ZIP archive from directory with filtering options.

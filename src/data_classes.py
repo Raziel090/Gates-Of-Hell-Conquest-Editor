@@ -1,6 +1,8 @@
 """Data classes for squad and inventory management."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 
 from src.entity_inventory import EntityInventory
 
@@ -20,4 +22,8 @@ class SquadInventory:
     """Store squad inventory data with entity inventories."""
 
     squad_id: int
-    inventories: dict[str, EntityInventory]
+    inventories: dict[str, EntityInventory] = field(default_factory=dict)
+
+    def add_inventory(self, squad_member_id: str, inventory: EntityInventory) -> None:
+        """Attach a squad member inventory to this squad container."""
+        self.inventories[squad_member_id] = inventory

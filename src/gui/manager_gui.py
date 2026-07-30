@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from tkinter import filedialog, ttk
 import tkinter as tk
+from typing import Optional
 from src.console_logger import ConsoleLogger
 from src.constants import CAMPAIGN_MANAGER_CACHE
 from src.entity_inventory import EntityInventory
@@ -69,7 +70,7 @@ PROPERTIES_PAK = "properties.pak"
 # Widget Configuration
 TOOLTIP_BBOX_POSITION = "insert"
 TOOLTIP_BACKGROUND = "white"
-TOOLTIP_FONT = ("Arial", "10", "normal")
+TOOLTIP_FONT = "Arial 10 normal"
 CAMPAIGN_NAME_FONT = ("Arial", 14)
 CONSOLE_BG_COLOR = "#212121"
 CONSOLE_FG_COLOR = "#CCCCCC"
@@ -174,9 +175,8 @@ class ToolTip:
         self.text = text
         if self.tipwindow or not self.text:
             return
-        x, y, cx, cy = self.widget.bbox(TOOLTIP_BBOX_POSITION)
-        x += self.widget.winfo_rootx() + 30
-        y += cy + self.widget.winfo_rooty() + 30
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
         self.tipwindow = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
@@ -212,12 +212,70 @@ class ManagerGUI:
         self.campaign_file_path = ""
         self.data_dir_path = str(Path(os.getcwd()) / DATA_DIR_NAME)
 
-        self.console_text = None
-        self.logger: ConsoleLogger = None
+        self.console_text: Optional[tk.Text] = None
+        self.logger: ConsoleLogger | None = None
 
         self.manager_name = DEFAULT_MANAGER_NAME
 
-    def create_generic_data_management_content(self, parent_frame: ttk.Frame) -> None:
+    def _log(self, message: str) -> None:
+        """Log a message if a logger is available."""
+        if self.logger is not None:
+            self.logger.log(message)
+
+    def create_standard_tab_layout(
+        self,
+        parent_frame: ttk.Frame,
+        left_title: str,
+        middle_title: str,
+        console_title: str,
+        left_pack_options: dict[str, object] | None = None,
+        middle_pack_options: dict[str, object] | None = None,
+        console_pack_options: dict[str, object] | None = None,
+        middle_width: int = 220,
+        middle_height: int = 400,
+    ) -> tuple[ttk.LabelFrame, ttk.LabelFrame, ttk.LabelFrame]:
+        """Create the standard three-panel layout used by the manager tabs."""
+        left_frame = ttk.LabelFrame(parent_frame, text=left_title)
+        left_pack_options = {
+            "side": SIDE_LEFT,
+            "fill": FILL_BOTH,
+            "expand": EXPAND_TRUE,
+            "padx": 5,
+            "pady": 10,
+        } | (left_pack_options or {})
+        left_frame.pack(**left_pack_options)
+
+        middle_frame = ttk.LabelFrame(
+            parent_frame,
+            text=middle_title,
+            width=middle_width,
+            height=middle_height,
+        )
+        middle_pack_options = {
+            "side": SIDE_LEFT,
+            "fill": FILL_BOTH,
+            "expand": EXPAND_TRUE,
+            "padx": 5,
+            "pady": 10,
+        } | (middle_pack_options or {})
+        middle_frame.pack(**middle_pack_options)
+        middle_frame.pack_propagate(False)
+
+        console_frame = ttk.LabelFrame(parent_frame, text=console_title)
+        console_pack_options = {
+            "side": SIDE_LEFT,
+            "fill": FILL_BOTH,
+            "expand": EXPAND_TRUE,
+            "padx": 5,
+            "pady": 10,
+        } | (console_pack_options or {})
+        console_frame.pack(**console_pack_options)
+
+        return left_frame, middle_frame, console_frame
+
+    def create_generic_data_management_content(
+        self, parent_frame: ttk.Frame | ttk.LabelFrame
+    ) -> None:
         """Create content for the generic data management section.
 
         Args:
@@ -363,12 +421,12 @@ class ManagerGUI:
 
     def get_selected_unit_info(
         self, game_manager: GameManager, squad_id: int, squad_member_id: str
-    ) -> tuple[str, str, EntityInventory]:
+    ) -> tuple[str, str, Optional[EntityInventory]]:
         """Show selected unit info for unit manager."""
         if squad_member_id == DECEASED_UNIT_ID:
             unit_name = DECEASED_UNIT_NAME
             unit_type = NA_UNIT_TYPE
-            unit_inventory = None
+            unit_inventory: Optional[EntityInventory] = None
             return unit_name, unit_type, unit_inventory
 
         squad_inventories = game_manager.squads_inventories[squad_id].inventories
@@ -404,29 +462,31 @@ class ManagerGUI:
         widget.bind("<Leave>", leave)
 
     def load_game_install_dir(self) -> None:
-        """Load and validate game installation directory."""
-        game_install_dir_path = filedialog.askdirectory(
+        """Load and validate the game installation directory."""
+        selected_path = filedialog.askdirectory(
             title=SELECT_GAME_DIR_TITLE,
             mustexist=True,
         )
+        if not selected_path:
+            return
 
-        game_install_dir_path = Path(game_install_dir_path)
+        game_install_dir_path = Path(selected_path)
 
         correct_dir = True
         if not (game_install_dir_path / RESOURCE_DIR_NAME).exists():
-            self.logger.log(INVALID_GAME_DIR_MSG)
+            self._log(INVALID_GAME_DIR_MSG)
             correct_dir = False
 
         if not (game_install_dir_path / RESOURCE_DIR_NAME / GAMELOGIC_PAK).exists():
-            self.logger.log(MISSING_GAMELOGIC_PAK_MSG)
+            self._log(MISSING_GAMELOGIC_PAK_MSG)
             correct_dir = False
 
         if not (game_install_dir_path / RESOURCE_DIR_NAME / PROPERTIES_PAK).exists():
-            self.logger.log(MISSING_PROPERTIES_PAK_MSG)
+            self._log(MISSING_PROPERTIES_PAK_MSG)
             correct_dir = False
 
         if not (game_install_dir_path / RESOURCE_DIR_NAME / ENTITY_DIR_NAME).exists():
-            self.logger.log(MISSING_ENTITY_DIR_MSG)
+            self._log(MISSING_ENTITY_DIR_MSG)
             correct_dir = False
 
         if not correct_dir:
@@ -437,9 +497,7 @@ class ManagerGUI:
             )
             return
 
-        self.logger.log(
-            f"Game installation directory selected: {game_install_dir_path}"
-        )
+        self._log(f"Game installation directory selected: {game_install_dir_path}")
 
         self.game_install_dir = str(game_install_dir_path)
 
@@ -452,23 +510,25 @@ class ManagerGUI:
         self.save_cache()
 
     def load_data_dir(self) -> None:
-        """Load and validate extracted data directory."""
-        data_dir_path = filedialog.askdirectory(
+        """Load and validate the extracted data directory."""
+        selected_path = filedialog.askdirectory(
             title=SELECT_DATA_DIR_TITLE,
             mustexist=True,
         )
+        if not selected_path:
+            return
 
-        data_dir_path = Path(data_dir_path)
+        data_dir_path = Path(selected_path)
 
         correct_dir = True
         if not (data_dir_path / ENTITY_DIR_NAME).exists():
-            self.logger.log(INVALID_DATA_DIR_ENTITY_MSG)
+            self._log(INVALID_DATA_DIR_ENTITY_MSG)
             correct_dir = False
         if not (data_dir_path / SET_DIR_NAME).exists():
-            self.logger.log(INVALID_DATA_DIR_SET_MSG)
+            self._log(INVALID_DATA_DIR_SET_MSG)
             correct_dir = False
         if not (data_dir_path / PROPERTIES_DIR_NAME).exists():
-            self.logger.log(INVALID_DATA_DIR_PROPERTIES_MSG)
+            self._log(INVALID_DATA_DIR_PROPERTIES_MSG)
             correct_dir = False
 
         if not correct_dir:
@@ -479,7 +539,7 @@ class ManagerGUI:
             )
             return
 
-        self.logger.log(f"Data directory selected: {data_dir_path}")
+        self._log(f"Data directory selected: {data_dir_path}")
 
         self.data_dir_path = str(data_dir_path)
 
@@ -493,13 +553,13 @@ class ManagerGUI:
         self.save_cache()
 
     def load_campaign_file(self) -> None:
-        """Load and validate campaign save file."""
-        campaign_file = filedialog.askopenfile(
+        """Load and validate the selected campaign save file."""
+        campaign_file_path = filedialog.askopenfilename(
             title=SELECT_CAMPAIGN_TITLE,
             filetypes=[(SAVE_FILES_LABEL, SAVE_FILE_PATTERN)],
         )
 
-        if not campaign_file:
+        if not campaign_file_path:
             self.update_label_status(
                 self.campaign_file_status_label,
                 text=CAMPAIGN_FILE_INVALID,
@@ -507,9 +567,10 @@ class ManagerGUI:
             )
             return
 
-        self.logger.log(f"Campaign file selected: {campaign_file.name}")
+        campaign_path = Path(campaign_file_path)
+        self._log(f"Campaign file selected: {campaign_path.name}")
 
-        self.campaign_file_path = campaign_file.name
+        self.campaign_file_path = str(campaign_path)
 
         self.update_label_status(
             self.campaign_file_status_label,
@@ -517,7 +578,7 @@ class ManagerGUI:
             style=GREEN_LABEL_STYLE,
         )
 
-        self.campaign_name_str_var.set(os.path.basename(str(campaign_file.name)))
+        self.campaign_name_str_var.set(campaign_path.name)
 
         # Save cache after updating
         self.save_cache()
@@ -547,10 +608,10 @@ class ManagerGUI:
         try:
             with open(cache_file, "r") as f:
                 cache = json.load(f)
-            self.logger.log(SETTINGS_LOADED_MSG)
+            self._log(SETTINGS_LOADED_MSG)
             return cache
         except Exception as e:
-            self.logger.log(f"Error loading cache: {str(e)}")
+            self._log(f"Error loading cache: {str(e)}")
             return default_cache
 
     def save_cache(self) -> None:
@@ -565,9 +626,9 @@ class ManagerGUI:
         try:
             with open(cache_file, "w") as f:
                 json.dump(cache, f, indent=4)
-            self.logger.log(SETTINGS_SAVED_MSG)
+            self._log(SETTINGS_SAVED_MSG)
         except Exception as e:
-            self.logger.log(f"Error saving cache: {str(e)}")
+            self._log(f"Error saving cache: {str(e)}")
 
     def update_ui_from_cache(self) -> None:
         """Update UI elements from cached values."""
@@ -578,7 +639,7 @@ class ManagerGUI:
                 text="Game Installation Directory: OK",
                 style=GREEN_LABEL_STYLE,
             )
-            self.logger.log(f"Loaded game dir from cache: {self.game_install_dir}")
+            self._log(f"Loaded game dir from cache: {self.game_install_dir}")
 
         # Update campaign file status
         if self.campaign_file_path and Path(self.campaign_file_path).exists():
@@ -587,16 +648,15 @@ class ManagerGUI:
                 text="Campaign File: OK",
                 style=GREEN_LABEL_STYLE,
             )
-            self.logger.log(
-                f"Loaded campaign file from cache: {self.campaign_file_path}"
-            )
+            self._log(f"Loaded campaign file from cache: {self.campaign_file_path}")
 
             self.campaign_name_str_var.set(os.path.basename(self.campaign_file_path))
 
     def prepare_manager_from_cache(self) -> None:
+        """Initialize the manager from cached settings when available."""
         if self.game_install_dir and self.campaign_file_path:
             self.prepare_manager()
-            self.logger.log(f"Initialized {self.manager_name} from cache.")
+            self._log(f"Initialized {self.manager_name} from cache.")
 
     def show_confirmation_dialog(self, title: str, message: str) -> bool:
         """Show a yes/no confirmation dialog.
@@ -614,7 +674,7 @@ class ManagerGUI:
         dialog.resizable(False, False)
 
         # Make it modal (blocks interaction with main window)
-        dialog.transient(self.parent_notebook)
+        dialog.transient(self.parent_notebook.winfo_toplevel())
         dialog.grab_set()
 
         # Center on screen
@@ -685,11 +745,11 @@ class ManagerGUI:
         )
 
         if not campaign_backup_file_path.exists():
-            self.logger.log(NO_BACKUP_CAMPAIGN_MSG)
+            self._log(NO_BACKUP_CAMPAIGN_MSG)
             return
 
         if not campaign_status_backup_file_path.exists():
-            self.logger.log(NO_BACKUP_STATUS_MSG)
+            self._log(NO_BACKUP_STATUS_MSG)
             return
 
         confirm = self.show_confirmation_dialog(
@@ -698,7 +758,7 @@ class ManagerGUI:
         )
 
         if not confirm:
-            self.logger.log("Backup restore cancelled.")
+            self._log("Backup restore cancelled.")
             return
 
         try:
@@ -716,9 +776,9 @@ class ManagerGUI:
 
             self.prepare_manager()
 
-            self.logger.log("Backup restored successfully.")
+            self._log("Backup restored successfully.")
         except Exception as e:
-            self.logger.log(f"Error restoring backup: {str(e)}")
+            self._log(f"Error restoring backup: {str(e)}")
 
     # Abstract methods - to be overridden by child classes
     def create_gui(self) -> None:

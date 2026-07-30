@@ -4,6 +4,7 @@ from tkinter import ttk
 import tkinter as tk
 from src.managers.game_manager import GameManager
 from src.managers.inventory_manager import InventoryManager
+from src.gui.inventory_action_controller import InventoryActionController
 from src.gui.manager_gui import ManagerGUI
 from src.constants import (
     # UI Text Constants
@@ -144,6 +145,7 @@ class InventoryManagerGUI(ManagerGUI):
         super().__init__(parent_notebook=parent_notebook)
 
         self.manager_name = INVENTORY_MANAGER_TITLE
+        self.action_controller = InventoryActionController()
 
     def create_gui(self) -> None:
         """Create the Inventory Manager GUI interface."""
@@ -163,40 +165,34 @@ class InventoryManagerGUI(ManagerGUI):
         parent_frame = ttk.Frame(tab_frame)
         parent_frame.pack(fill=FILL_BOTH, expand=EXPAND_TRUE)
 
-        # Create left frame for buttons and labels
-        left_frame = ttk.LabelFrame(parent_frame, text=CONTROLS_FRAME_TITLE)
-        left_frame.pack(
-            side=SIDE_LEFT,
-            fill=FILL_BOTH,
-            expand=EXPAND_TRUE,
-            padx=PADX_SMALL,
-            pady=PADY_MEDIUM,
-        )
-
-        # Create middle frame for comboboxes and interactive elements
-        middle_frame = ttk.LabelFrame(
+        left_frame, middle_frame, console_frame = self.create_standard_tab_layout(
             parent_frame,
-            text=SELECTION_FRAME_TITLE,
-            width=220,
-            height=400,
-        )
-        middle_frame.pack(
-            side=SIDE_LEFT,
-            fill=FILL_BOTH,
-            expand=EXPAND_TRUE,
-            padx=PADX_SMALL,
-            pady=PADY_MEDIUM,
-        )
-        middle_frame.pack_propagate(False)
-
-        # Create console frame (right side)
-        console_frame = ttk.LabelFrame(parent_frame, text=CONSOLE_OUTPUT_TITLE)
-        console_frame.pack(
-            side=SIDE_LEFT,
-            fill=FILL_BOTH,
-            expand=EXPAND_TRUE,
-            padx=PADX_SMALL,
-            pady=PADY_MEDIUM,
+            left_title=CONTROLS_FRAME_TITLE,
+            middle_title=SELECTION_FRAME_TITLE,
+            console_title=CONSOLE_OUTPUT_TITLE,
+            left_pack_options={
+                "side": SIDE_LEFT,
+                "fill": FILL_BOTH,
+                "expand": EXPAND_TRUE,
+                "padx": PADX_SMALL,
+                "pady": PADY_MEDIUM,
+            },
+            middle_pack_options={
+                "side": SIDE_LEFT,
+                "fill": FILL_BOTH,
+                "expand": EXPAND_TRUE,
+                "padx": PADX_SMALL,
+                "pady": PADY_MEDIUM,
+            },
+            console_pack_options={
+                "side": SIDE_LEFT,
+                "fill": FILL_BOTH,
+                "expand": EXPAND_TRUE,
+                "padx": PADX_SMALL,
+                "pady": PADY_MEDIUM,
+            },
+            middle_width=220,
+            middle_height=400,
         )
 
         self.create_inventory_manager_left_frame_content(left_frame)
@@ -204,7 +200,7 @@ class InventoryManagerGUI(ManagerGUI):
         self.create_inventory_manager_console_frame_content(console_frame)
 
         # Write initial message to console
-        self.logger.log(INVENTORY_MANAGER_STARTED_MSG)
+        self._log(INVENTORY_MANAGER_STARTED_MSG)
 
         # Load cache after logger is initialized
         cached_settings = self.load_cache()
@@ -416,8 +412,11 @@ class InventoryManagerGUI(ManagerGUI):
         if (
             not self.game_install_dir and not self.data_dir_path
         ) or not self.campaign_file_path:
-            self.logger.log(SPECIFY_DIRECTORIES_MSG)
+            self._log(SPECIFY_DIRECTORIES_MSG)
             return
+
+        if self.logger is None:
+            raise RuntimeError("Console logger is not initialized.")
 
         self.inventory_manager = InventoryManager(
             game_install_dir_path=self.game_install_dir,
@@ -428,13 +427,14 @@ class InventoryManagerGUI(ManagerGUI):
 
         self.inventory_manager.prepare_squads_and_inventories()
 
-        self.logger.log(INVENTORY_MANAGER_INITIALIZED_MSG)
+        self._log(INVENTORY_MANAGER_INITIALIZED_MSG)
 
         self.populate_gui_elements_with_data()
-        self.update_resources(
-            self.inventory_manager.knowledge_base.campaign_status_info.mp,
-            self.inventory_manager.knowledge_base.campaign_status_info.ap,
-        )
+        campaign_status_info = self.inventory_manager.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self._log("Campaign status information is not initialized.")
+            return
+        self.update_resources(campaign_status_info.mp, campaign_status_info.ap)
 
     def populate_gui_elements_with_data(self) -> None:
         """Populate GUI controls with squad and inventory data."""
@@ -496,14 +496,16 @@ class InventoryManagerGUI(ManagerGUI):
         self.unit_name_label.config(text=unit_name)
         self.unit_type_label.config(text=unit_type)
 
+        if unit_inventory is None:
+            self.update_unit_details(UNKNOWN_LABEL)
+            return
+
         unit_inventory.count_items_in_inventory()
-        unit_inventory_counts = unit_inventory.item_counts
+        unit_inventory_counts = unit_inventory.item_counts or {}
 
-        lines = []
-        for key, value in unit_inventory_counts.items():
-            lines.append(f"{key}: {value}")
-
-        unit_inventory_text = "\n".join(lines)
+        unit_inventory_text = self.action_controller.format_inventory_details(
+            unit_inventory_counts
+        )
         self.update_unit_details(unit_inventory_text)
 
     def update_unit_details(self, details_text: str) -> None:
@@ -522,7 +524,7 @@ class InventoryManagerGUI(ManagerGUI):
         squad_id = self.squad_combo.current()
         squad_member_id = self.squad_member_combo.get()
         if not squad_member_id:
-            self.logger.log(SELECT_SQUAD_MEMBER_MSG)
+            self._log(SELECT_SQUAD_MEMBER_MSG)
             return
 
         self.inventory_manager.refill_squad_member_inventory(
@@ -530,16 +532,17 @@ class InventoryManagerGUI(ManagerGUI):
         )
 
         self.show_selected_unit_info(self.inventory_manager, squad_id, squad_member_id)
-        self.update_resources(
-            self.inventory_manager.knowledge_base.campaign_status_info.mp,
-            self.inventory_manager.knowledge_base.campaign_status_info.ap,
-        )
+        campaign_status_info = self.inventory_manager.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self._log("Campaign status information is not initialized.")
+            return
+        self.update_resources(campaign_status_info.mp, campaign_status_info.ap)
 
     def resupply_squad(self) -> None:
         """Resupply inventories for all members of the currently selected squad."""
         squad_id = self.squad_combo.current()
         if not self.inventory_manager.squads_inventories[squad_id].inventories:
-            self.logger.log(NO_SQUAD_MEMBERS_MSG)
+            self._log(NO_SQUAD_MEMBERS_MSG)
             return
 
         for squad_member_id in self.inventory_manager.squads_inventories[
@@ -553,15 +556,16 @@ class InventoryManagerGUI(ManagerGUI):
             self.show_selected_unit_info(
                 self.inventory_manager, squad_id, self.squad_member_combo.get()
             )
-        self.update_resources(
-            self.inventory_manager.knowledge_base.campaign_status_info.mp,
-            self.inventory_manager.knowledge_base.campaign_status_info.ap,
-        )
+        campaign_status_info = self.inventory_manager.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self._log("Campaign status information is not initialized.")
+            return
+        self.update_resources(campaign_status_info.mp, campaign_status_info.ap)
 
     def resupply_all_squads(self) -> None:
         """Resupply inventories for all members in all squads."""
         if not self.inventory_manager.squads_inventories:
-            self.logger.log(NO_SQUADS_TO_RESUPPLY_MSG)
+            self._log(NO_SQUADS_TO_RESUPPLY_MSG)
             return
 
         for squad_id, squad_inventory in enumerate(
@@ -579,31 +583,33 @@ class InventoryManagerGUI(ManagerGUI):
                 self.squad_member_combo.get(),
             )
 
-        self.update_resources(
-            self.inventory_manager.knowledge_base.campaign_status_info.mp,
-            self.inventory_manager.knowledge_base.campaign_status_info.ap,
-        )
+        campaign_status_info = self.inventory_manager.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self._log("Campaign status information is not initialized.")
+            return
+        self.update_resources(campaign_status_info.mp, campaign_status_info.ap)
 
     def add_missing_squad_members(self) -> None:
         """Add missing squad members to the currently selected squad."""
         squad_id = self.squad_combo.current()
         if not self.inventory_manager.squads_inventories[squad_id].inventories:
-            self.logger.log(NO_SQUAD_MEMBERS_TO_ADD_MSG)
+            self._log(NO_SQUAD_MEMBERS_TO_ADD_MSG)
             return
 
         self.inventory_manager.refill_missing_squad_members(squad_id)
 
         self.populate_gui_elements_with_data()
 
-        self.update_resources(
-            self.inventory_manager.knowledge_base.campaign_status_info.mp,
-            self.inventory_manager.knowledge_base.campaign_status_info.ap,
-        )
+        campaign_status_info = self.inventory_manager.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self._log("Campaign status information is not initialized.")
+            return
+        self.update_resources(campaign_status_info.mp, campaign_status_info.ap)
 
     def save_changes(self) -> None:
         """Save inventory modifications to campaign file."""
         if not self.inventory_manager:
-            self.logger.log(NO_MANAGER_INITIALIZED_MSG)
+            self._log(NO_MANAGER_INITIALIZED_MSG)
             return
 
         confirm = self.show_confirmation_dialog(
@@ -612,21 +618,22 @@ class InventoryManagerGUI(ManagerGUI):
         )
 
         if not confirm:
-            self.logger.log(SAVE_CANCELLED_MSG)
+            self._log(SAVE_CANCELLED_MSG)
             return
 
         try:
             self.inventory_manager.save_changes()
-            self.logger.log(CHANGES_SAVED_MSG)
+            self._log(CHANGES_SAVED_MSG)
 
             self.inventory_manager.prepare_squads_and_inventories()
             self.populate_gui_elements_with_data()
-            self.update_resources(
-                self.inventory_manager.knowledge_base.campaign_status_info.mp,
-                self.inventory_manager.knowledge_base.campaign_status_info.ap,
-            )
+            campaign_status_info = self.inventory_manager.knowledge_base.campaign_status_info
+            if campaign_status_info is None:
+                self._log("Campaign status information is not initialized.")
+                return
+            self.update_resources(campaign_status_info.mp, campaign_status_info.ap)
         except KeyError as e:
-            self.logger.log(f"{ERROR_SAVING_CHANGES_MSG} {str(e)}")
+            self._log(f"{ERROR_SAVING_CHANGES_MSG} {str(e)}")
 
     def update_resources(self, mp: float, ap: float) -> None:
         """Update the resource displays.

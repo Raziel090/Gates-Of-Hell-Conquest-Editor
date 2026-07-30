@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import tkinter as tk
 from tkinter import ttk
 from ttkthemes import ThemedTk
 from src.console_logger import ConsoleLogger
@@ -42,8 +43,8 @@ class CampaignEditorGUI:
         self.campaign_file_path = EMPTY_STRING
         self.data_dir_path = str(Path(os.getcwd()) / DATA_DIR_NAME)
 
-        self.console_text = None
-        self.logger: ConsoleLogger = None
+        self.console_text: tk.Text | None = None
+        self.logger: ConsoleLogger | None = None
 
     def create_gui(self) -> None:
         """Create and configure the main GUI interface."""
@@ -60,15 +61,19 @@ class CampaignEditorGUI:
         bg_color = style.lookup(TFRAME_STYLE, BACKGROUND_PROPERTY)
         self.master.configure(background=bg_color)
 
-        # Create notebook widget for tabs
-        parent_notebook = ttk.Notebook(self.master)
-        parent_notebook.pack(fill=PACK_FILL_BOTH, expand=True)
+        parent_notebook = self.create_notebook()
 
         self.unit_manager_gui = UnitManagerGUI(parent_notebook)
         self.unit_manager_gui.create_gui()
 
         self.inventory_manager_gui = InventoryManagerGUI(parent_notebook)
         self.inventory_manager_gui.create_gui()
+
+    def create_notebook(self) -> ttk.Notebook:
+        """Create the notebook that hosts the manager tabs."""
+        parent_notebook = ttk.Notebook(self.master)
+        parent_notebook.pack(fill=PACK_FILL_BOTH, expand=True)
+        return parent_notebook
 
     def run(self) -> None:
         """Run the GUI application."""

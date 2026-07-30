@@ -1,8 +1,10 @@
 """Entity inventory management and item manipulation for game units."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import re
-
+from typing import Optional
 import numpy as np
 
 from src.exceptions import ItemFitError
@@ -100,8 +102,8 @@ class EntityInventory:
         self.knowledge_base = knowledge_base
         self.logger = knowledge_base.logger
 
-        self.inventory_matrix = None
-        self.item_counts = None
+        self.inventory_matrix: Optional[np.ndarray] = None
+        self.item_counts: Optional[dict[str, int]] = None
 
     def __str__(self) -> str:
         """Return string representation of entity inventory.
@@ -117,40 +119,48 @@ class EntityInventory:
     def convert_inventory_entry_to_game_item_info(
         self, inventory_item_entry: str
     ) -> GameItemInfo:
-        """Parse inventory entry string into structured item information.
+        """Parse an inventory entry string into structured item information.
 
         Args:
-            inventory_item_entry (str): Raw inventory entry string
+            inventory_item_entry (str): Raw inventory entry string.
 
         Returns:
-            GameItemInfo: Parsed item information with name, amount, and position
+            GameItemInfo: Parsed item information including name, amount, and position.
+
+        Raises:
+            ValueError: If the inventory entry is malformed and cannot be parsed.
         """
-        quote_item_pattern = QUOTE_ITEM_PATTERN
-        quoted_string_pattern = QUOTED_STRING_PATTERN
+        item_block_match = re.search(QUOTE_ITEM_PATTERN, inventory_item_entry)
+        if not item_block_match:
+            raise ValueError(f"Malformed inventory entry: {inventory_item_entry}")
 
-        matches = re.finditer(quote_item_pattern, inventory_item_entry)
-
-        for match in matches:
-            quoted_items = re.findall(quoted_string_pattern, match.group(0))
+        quoted_items = re.findall(
+            QUOTED_STRING_PATTERN,
+            item_block_match.group(0),
+        )
+        if not quoted_items:
+            raise ValueError(f"No item name found in inventory entry: {inventory_item_entry}")
 
         game_item_name = DOT_SEPARATOR.join(quoted_items)
 
-        amount_pattern = AMOUNT_PATTERN
         amount = DEFAULT_AMOUNT
-        amount_match = re.search(amount_pattern, inventory_item_entry)
+        amount_match = re.search(AMOUNT_PATTERN, inventory_item_entry)
         if amount_match and FILLING_KEYWORD not in inventory_item_entry:
             amount = int(amount_match.group(1))
 
-        cell_pattern = CELL_PATTERN
-        cell_values_pattern = CELL_VALUES_PATTERN
+        cell_match = re.search(CELL_PATTERN, inventory_item_entry)
+        if not cell_match:
+            raise ValueError(f"No cell position found in inventory entry: {inventory_item_entry}")
 
-        cell_match = re.findall(cell_pattern, inventory_item_entry)[0]
-        cell_match = re.findall(cell_values_pattern, cell_match)
-        cell_x = cell_match[0]
-        cell_y = cell_match[1]
+        cell_values = re.findall(CELL_VALUES_PATTERN, cell_match.group(0))
+        if len(cell_values) < 2:
+            raise ValueError(f"Malformed cell coordinates in inventory entry: {inventory_item_entry}")
 
         return GameItemInfo(
-            game_item_name=game_item_name, amount=amount, cell_x=cell_x, cell_y=cell_y
+            game_item_name=game_item_name,
+            amount=amount,
+            cell_x=int(cell_values[0]),
+            cell_y=int(cell_values[1]),
         )
 
     def create_inventory_matrix(self) -> None:
@@ -192,14 +202,14 @@ class EntityInventory:
 
         self.inventory_matrix = inventory_matrix
 
-    def find_inventory_space_for_item(self, item_name: str) -> dict[str, str]:
+    def find_inventory_space_for_item(self, item_name: str) -> GameItemInfo:
         """Find available space in inventory for specified item.
 
         Args:
             item_name (str): Name of item to find space for
 
         Returns:
-            dict[str, str]: Game item info with available position
+            GameItemInfo: Structured item info with the available position
 
         Raises:
             ItemFitError: If item cannot fit in available inventory space
@@ -258,9 +268,11 @@ class EntityInventory:
             str: Formatted inventory entry string
         """
         entry_str = ITEM_ENTRY_PREFIX
-        item_name_split = game_item_info.game_item_name.split(DOT_SEPARATOR)
-        for item_name_part in item_name_split:
-            entry_str += ITEM_NAME_QUOTE_TEMPLATE.format(item_name_part)
+        item_name_parts = [
+            ITEM_NAME_QUOTE_TEMPLATE.format(part)
+            for part in game_item_info.game_item_name.split(DOT_SEPARATOR)
+        ]
+        entry_str += "".join(item_name_parts)
         if amount > DEFAULT_AMOUNT:
             entry_str += AMOUNT_FORMAT.format(amount)
         entry_str += CELL_FORMAT.format(game_item_info.cell_x, game_item_info.cell_y)

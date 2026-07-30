@@ -98,6 +98,15 @@ MAX_RESOURCES = 10
 RESOURCE_MULTIPLIER = 10
 
 
+def _substitute_army_key_in_breed(breed: str, army: str) -> str:
+    """Replace the army segment in an MP breed path with the requested faction."""
+    if MP_PREFIX in breed:
+        breed_split = breed.split("/")
+        breed_split[1] = army
+        return "/".join(breed_split)
+    return breed
+
+
 class InventoryManager(GameManager):
     """Manage squad member inventories and equipment refills."""
 
@@ -127,9 +136,11 @@ class InventoryManager(GameManager):
         self.new_unit_entries: list[str] = []
         self.new_units_resupplied_squads: list[int] = []
 
-    def prepare_squads_and_inventories(self) -> None:
+    def prepare_squads_and_inventories(self, keep_deceased_members: bool = False) -> None:
         """Prepare squad data and collect all member IDs."""
-        super().prepare_squads_and_inventories(keep_deceased_members=False)
+        super().prepare_squads_and_inventories(
+            keep_deceased_members=keep_deceased_members
+        )
         self.squad_members_ids = self.get_all_squad_members_ids()
 
     def refill_human_squad_member_inventory(
@@ -255,8 +266,13 @@ class InventoryManager(GameManager):
             if item_name not in self.knowledge_base.weapons_list:
                 continue
 
+            campaign_status_info = self.knowledge_base.campaign_status_info
+            if campaign_status_info is None:
+                self.logger.log("Campaign status information is not initialized.")
+                return
+
             item_refill_cost = self.knowledge_base.item_weights[item_name]
-            if self.knowledge_base.campaign_status_info.ap - item_refill_cost < 0:
+            if campaign_status_info.ap - item_refill_cost < 0:
                 self.logger.log(
                     f"Not enough AP to refill {item_name} in {squad_member_inventory.entity_id} inventory."
                 )
@@ -267,7 +283,7 @@ class InventoryManager(GameManager):
                 item_name, amount=item_amount
             )
             if added_item:
-                self.knowledge_base.campaign_status_info.ap -= item_refill_cost
+                campaign_status_info.ap -= item_refill_cost
 
                 self.logger.log(
                     LOG_WEAPON_ADDED.format(
@@ -296,16 +312,20 @@ class InventoryManager(GameManager):
                 continue
             if not item.is_visible:
                 continue
-            squad_member_inventory_amount = squad_member_inventory.item_counts.get(
-                item_name, 0
-            )
+            item_counts = squad_member_inventory.item_counts or {}
+            squad_member_inventory_amount = item_counts.get(item_name, 0)
 
             if squad_member_inventory_amount < amount:
                 item_amount = amount - squad_member_inventory_amount
                 item_refill_cost = (
                     self.knowledge_base.item_weights[item_name] * item_amount
                 )
-                if self.knowledge_base.campaign_status_info.ap - item_refill_cost < 0:
+                campaign_status_info = self.knowledge_base.campaign_status_info
+                if campaign_status_info is None:
+                    self.logger.log("Campaign status information is not initialized.")
+                    return
+
+                if campaign_status_info.ap - item_refill_cost < 0:
                     self.logger.log(
                         f"Not enough AP to refill {item_name} in {squad_member_inventory.entity_id} inventory."
                     )
@@ -318,6 +338,7 @@ class InventoryManager(GameManager):
 
                 in_game_item_full_stacks = item_amount // item_block_size
                 in_game_item_remainder = item_amount % item_block_size
+                added_item = False
                 for _ in range(in_game_item_full_stacks):
                     added_item = squad_member_inventory.add_item_to_inventory(
                         item_name, amount=item_block_size
@@ -327,7 +348,7 @@ class InventoryManager(GameManager):
                         item_name, amount=in_game_item_remainder
                     )
 
-                self.knowledge_base.campaign_status_info.ap -= item_refill_cost
+                campaign_status_info.ap -= item_refill_cost
 
                 if added_item:
                     self.logger.log(
@@ -449,6 +470,9 @@ class InventoryManager(GameManager):
                 weapon_info = self.knowledge_base.find_weapon_in_weapons_info_list(
                     item_name
                 )
+                if weapon_info is None:
+                    continue
+
                 weapons_in_inventory.insert(
                     0,
                     WeaponInfo(
@@ -546,7 +570,7 @@ class InventoryManager(GameManager):
         self,
         squad_member_inventory: EntityInventory,
         item: BreedItemInfo,
-        target_amount: int = None,
+        target_amount: int | None = None,
     ) -> bool:
         """Refill vehicle standard ammunition to target amount.
 
@@ -560,7 +584,8 @@ class InventoryManager(GameManager):
         """
         item_name = item.game_item_name
         target_amount = target_amount or item.amount
-        current_amount = squad_member_inventory.item_counts.get(item_name, 0)
+        item_counts = squad_member_inventory.item_counts or {}
+        current_amount = item_counts.get(item_name, 0)
 
         if current_amount >= target_amount:
             return False
@@ -568,7 +593,12 @@ class InventoryManager(GameManager):
         item_mass = self.knowledge_base.item_weights[item_name]
         item_refill_cost = round(item_mass * (target_amount - current_amount), 1)
 
-        if self.knowledge_base.campaign_status_info.ap - item_refill_cost < 0:
+        campaign_status_info = self.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self.logger.log("Campaign status information is not initialized.")
+            return False
+
+        if campaign_status_info.ap - item_refill_cost < 0:
             self.logger.log(
                 f"Not enough AP to refill {item_name} in {squad_member_inventory.entity_id} inventory."
             )
@@ -604,7 +634,7 @@ class InventoryManager(GameManager):
 
         squad_member_inventory.count_items_in_inventory()
 
-        self.knowledge_base.campaign_status_info.ap -= item_refill_cost
+        campaign_status_info.ap -= item_refill_cost
         return True
 
     def _find_max_ammo_amount_in_vehicle_inventory_entries(
@@ -673,7 +703,8 @@ class InventoryManager(GameManager):
             item (BreedItemInfo): Ammunition item to refill
         """
         item_name = item.game_item_name
-        current_amount = squad_member_inventory.item_counts.get(item_name, 0)
+        item_counts = squad_member_inventory.item_counts or {}
+        current_amount = item_counts.get(item_name, 0)
 
         target_amount = item.amount
 
@@ -682,7 +713,12 @@ class InventoryManager(GameManager):
 
         item_mass = self.knowledge_base.item_weights[item_name]
         item_refill_cost = round(item_mass * (target_amount - current_amount), 1)
-        if self.knowledge_base.campaign_status_info.ap - item_refill_cost < 0:
+        campaign_status_info = self.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self.logger.log("Campaign status information is not initialized.")
+            return
+
+        if campaign_status_info.ap - item_refill_cost < 0:
             self.logger.log(
                 f"Not enough AP to refill {item_name} in {squad_member_inventory.entity_id} inventory."
             )
@@ -730,7 +766,7 @@ class InventoryManager(GameManager):
                     f"Added {remainder} of {item_name} to inventory of {squad_member_inventory.entity_id}."
                 )
 
-        self.knowledge_base.campaign_status_info.ap -= item_refill_cost
+        campaign_status_info.ap -= item_refill_cost
 
         self.logger.log(
             f"Total {filled_amount + remaining_amount} of {item_name} for {item_refill_cost} AP added to {squad_member_inventory.entity_id}."
@@ -750,7 +786,12 @@ class InventoryManager(GameManager):
             MAX_RESOURCES - squad_member_inventory.resources
         ) * RESOURCE_MULTIPLIER
         missing_resources_cost = round(missing_resources * 0.25, 1)
-        if self.knowledge_base.campaign_status_info.ap - missing_resources_cost < 0:
+        campaign_status_info = self.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self.logger.log("Campaign status information is not initialized.")
+            return
+
+        if campaign_status_info.ap - missing_resources_cost < 0:
             self.logger.log(
                 LOG_NOT_ENOUGH_AP_ITEM.format(
                     item_type="supplies/resources",
@@ -760,7 +801,7 @@ class InventoryManager(GameManager):
             return
 
         squad_member_inventory.resources = MAX_RESOURCES
-        self.knowledge_base.campaign_status_info.ap -= missing_resources_cost
+        campaign_status_info.ap -= missing_resources_cost
 
         self.logger.log(
             LOG_RESOURCES_ADDED.format(
@@ -779,7 +820,12 @@ class InventoryManager(GameManager):
         # Here supplies are missing supplies
         missing_supplies = squad_member_inventory.supplies
         missing_supplies_cost = round(missing_supplies * 0.15, 1)
-        if self.knowledge_base.campaign_status_info.ap - missing_supplies_cost < 0:
+        campaign_status_info = self.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self.logger.log("Campaign status information is not initialized.")
+            return
+
+        if campaign_status_info.ap - missing_supplies_cost < 0:
             self.logger.log(
                 f"Not enough AP to refill supplies in {squad_member_inventory.entity_id} inventory."
             )
@@ -787,7 +833,7 @@ class InventoryManager(GameManager):
 
         # After the refill there are 0 missing supplies
         squad_member_inventory.supplies = 0
-        self.knowledge_base.campaign_status_info.ap -= missing_supplies_cost
+        campaign_status_info.ap -= missing_supplies_cost
 
         self.logger.log(
             f"Total {missing_supplies} supplies added to {squad_member_inventory.entity_id} for {missing_supplies_cost} AP."
@@ -809,7 +855,12 @@ class InventoryManager(GameManager):
         if missing_fuel <= 0:
             return
         missing_fuel_cost = round(missing_fuel * 0.25, 1)
-        if self.knowledge_base.campaign_status_info.ap - missing_fuel_cost < 0:
+        campaign_status_info = self.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self.logger.log("Campaign status information is not initialized.")
+            return
+
+        if campaign_status_info.ap - missing_fuel_cost < 0:
             self.logger.log(
                 f"Not enough AP to refill fuel in {squad_member_inventory.entity_id} inventory."
             )
@@ -818,7 +869,7 @@ class InventoryManager(GameManager):
         squad_member_inventory.fuel = self.knowledge_base.vehicles_fuel_properties[
             squad_member_inventory.entity_breed
         ]
-        self.knowledge_base.campaign_status_info.ap -= missing_fuel_cost
+        campaign_status_info.ap -= missing_fuel_cost
 
         self.logger.log(
             f"Total {missing_fuel} fuel added to {squad_member_inventory.entity_id} for {missing_fuel_cost} AP."
@@ -830,13 +881,6 @@ class InventoryManager(GameManager):
         Args:
             squad_id (int): The squad identifier
         """
-
-        def _substitute_army_key_in_breed(breed: str, army: str) -> str:
-            if MP_PREFIX in breed:
-                breed_split = breed.split("/")
-                breed_split[1] = army
-                return "/".join(breed_split)
-            return breed
 
         squad_name = self.squads[squad_id].squad_name.strip('"')
         squad_inventory = self.squads_inventories[squad_id]
@@ -850,7 +894,12 @@ class InventoryManager(GameManager):
                 member_counts[member_name] = 0
             member_counts[member_name] += 1
 
-        conflict_side = self.knowledge_base.campaign_status_info.army
+        campaign_status_info = self.knowledge_base.campaign_status_info
+        if campaign_status_info is None:
+            self.logger.log("Campaign status information is not initialized.")
+            return
+
+        conflict_side = campaign_status_info.army
 
         standard_squad_composition = self.knowledge_base.squad_compositions[squad_name]
         standard_squad_members = standard_squad_composition.members
@@ -913,7 +962,12 @@ class InventoryManager(GameManager):
                             )
                             continue
 
-                    if self.knowledge_base.campaign_status_info.mp - cost < 0:
+                    campaign_status_info = self.knowledge_base.campaign_status_info
+                    if campaign_status_info is None:
+                        self.logger.log("Campaign status information is not initialized.")
+                        return
+
+                    if campaign_status_info.mp - cost < 0:
                         self.logger.log(
                             LOG_NOT_ENOUGH_MP_UNIT.format(
                                 breed=breed, squad_name=squad_name
@@ -924,7 +978,7 @@ class InventoryManager(GameManager):
                         squad_id=squad_id, breed=breed
                     )
                     new_unit_entries.append(unit_entry)
-                    self.knowledge_base.campaign_status_info.mp -= cost
+                    campaign_status_info.mp -= cost
                     total_cost += cost
                     if squad_id not in self.new_units_resupplied_squads:
                         self.new_units_resupplied_squads.append(squad_id)
