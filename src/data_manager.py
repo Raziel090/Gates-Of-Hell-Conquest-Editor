@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import re
+import shutil
 import zipfile
 
 from src.console_logger import ConsoleLogger
@@ -179,13 +180,20 @@ class DataManager:
 
     def extract_campaign_files(self) -> None:
         """Extract campaign files from save archive to working directory."""
-        if os.path.exists(self.campaign_data_file_path):
-            self.logger.log(OVERWRITING_MESSAGE.format(self.campaign_data_dir_path))
+        self._reset_campaign_data_cache()
         with zipfile.ZipFile(self.campaign_save_file_path, READ_MODE) as save_file:
             save_file.extractall(self.campaign_data_dir_path)
             self.logger.log(
                 EXTRACTED_MESSAGE.format("campaign files", self.campaign_data_dir_path)
             )
+
+    def _reset_campaign_data_cache(self) -> None:
+        """Reset extracted campaign cache to avoid stale files across save switches."""
+        if self.campaign_data_dir_path.exists():
+            self.logger.log(OVERWRITING_MESSAGE.format(self.campaign_data_dir_path))
+            shutil.rmtree(self.campaign_data_dir_path)
+
+        self.campaign_data_dir_path.mkdir(parents=True, exist_ok=True)
 
     def extract_set_breed_from_game_data(self) -> None:
         """Extract set/breed/mp data from gamelogic archive."""

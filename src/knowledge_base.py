@@ -841,7 +841,10 @@ class KnowledgeBase:
                 vehicle_inventories[vehicle_name] = converted_vehicle_inventory_entries
 
         for vehicle_name, inclusion in inventories_inclusions.items():
-            vehicle_inventories[vehicle_name] += vehicle_inventories[inclusion]
+            if inclusion in vehicle_inventories:
+                vehicle_inventories[vehicle_name] += vehicle_inventories[inclusion]
+            else:
+                vehicle_inventories[vehicle_name] = vehicle_inventories.get(vehicle_name, [])
 
         for (
             vehicle_name,
@@ -877,13 +880,13 @@ class KnowledgeBase:
             file_path_split = file_path.split("\\")
             vehicle_name = re.sub(r"\.(def)$", "", file_path_split[-1])
 
-            with open(file_path, "r") as file:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
                 content = file.read()
                 pattern = r'\(include\s+"\/properties\/([^"/.]+)\.ext"\)'
                 matches = re.findall(pattern, content)
                 vehicle_properties[vehicle_name] = matches
 
-            with open(file_path, "r") as file:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
                 content = file.read()
                 pattern = r"fuel\((\d+)\)"
                 match = re.search(pattern, content)
@@ -896,18 +899,29 @@ class KnowledgeBase:
             vehicle_name = re.sub(r"\.(def)$", "", file_path_split[-1])
 
             if vehicle_properties[vehicle_name] == []:
-                with open(file_path, "r") as file:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
                     content = file.read()
                     pattern = r'\(include\s+"([^"/.]+)\.inc"\)'
                     matches = re.findall(pattern, content)
+                    if not matches:
+                        vehicle_properties[vehicle_name] = []
+                        vehicle_fuel_properties[vehicle_name] = -1
+                        continue
+
                     property_name = f"{matches[0]}.inc"
+                    if property_name not in vehicle_properties:
+                        vehicle_properties[vehicle_name] = []
+                        vehicle_fuel_properties[vehicle_name] = -1
+                        continue
+
                     vehicle_properties[vehicle_name] = vehicle_properties[property_name]
                     vehicle_fuel_properties[vehicle_name] = vehicle_fuel_properties[
                         property_name
                     ]
 
         for vehicle_name, properties in vehicle_properties.items():
-            assert properties != []
+            if properties == []:
+                vehicle_properties[vehicle_name] = []
 
         self.vehicles_properties_lists = vehicle_properties
         self.vehicles_fuel_properties = vehicle_fuel_properties
@@ -1176,6 +1190,8 @@ class KnowledgeBase:
                     for match in matches:
                         content = match[1]
                         content_parts = content.split(":")
+                        if len(content_parts) < 2:
+                            continue
                         member_name = content_parts[0]
                         member_extended_name = f"mp/{side}/{period}/{member_name}"
                         member_count = content_parts[1]
@@ -1279,10 +1295,11 @@ class KnowledgeBase:
     ) -> dict[str, float]:
         exceptions_names_costs = {
             "mp/rus/late/sapper_nco": 10,
-            "mp/usa/mid/platoon_com": 15,
+            # "mp/usa/mid/platoon_com": 15,
             "mp/usa/late/late_driver_m3": 10,
             "60mm_m2_late": 170,
-            "mp/usa/late/101st_eng_at_m1a1": 73,
+            "mp/usa/late/101st_eng_at_m1a1": 63,
+            "mp/eng/late/com_subsec_2ic_smg_s": 15,
         }
         infantry_costs.update(exceptions_names_costs)
 
@@ -1298,7 +1315,8 @@ class KnowledgeBase:
             vehicle_name,
             vehicle_property_types,
         ) in self.vehicles_properties_lists.items():
-            vehicles_properties[vehicle_name] = vehicle_property_types[0]
+            if vehicle_property_types:
+                vehicles_properties[vehicle_name] = vehicle_property_types[0]
 
         assert vehicles_properties != {}
         self.vehicles_properties = vehicles_properties
