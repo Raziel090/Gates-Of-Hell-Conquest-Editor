@@ -157,6 +157,29 @@ GAME_INSTALL_DIR_KEY = "game_install_dir"
 CAMPAIGN_FILE_PATH_KEY = "campaign_file_path"
 DATA_DIR_PATH_KEY = "data_dir_path"
 
+# Vehicle appearance options
+VEHICLE_ENUMERATOR_DIGIT_FOLDERS = [
+    "1",
+    "2",
+    "3",
+    "c47",
+    "cirill",
+    "ger",
+    "ger2",
+    "moe",
+    "np",
+    "np_w",
+    "red",
+    "ru1",
+    "ru2",
+    "ru3",
+    "ru_num1",
+    "small",
+    "us1",
+    "us2",
+    "us3",
+]
+
 # Regex Patterns
 SQUAD_INFO_PATTERN = r"\{(.*?)\}"
 SUPPLIES_PATTERN = r'\{\s*Extender\s+"supply_zone"[\s\n]+\{enabled\}[\s\n]+\{current\s+(\d+)\}[\s\n]+\}'

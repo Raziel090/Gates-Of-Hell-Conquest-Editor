@@ -8,6 +8,7 @@ from ttkthemes import ThemedTk
 from src.console_logger import ConsoleLogger
 from src.gui.inventory_manager_gui import InventoryManagerGUI
 from src.gui.unit_manager_gui import UnitManagerGUI
+from src.gui.vehicle_appearance_manager_gui import VehicleAppearanceManagerGUI
 from src.constants import (
     # GUI Configuration Constants
     THEME_NAME,
@@ -68,6 +69,9 @@ class CampaignEditorGUI:
 
         self.inventory_manager_gui = InventoryManagerGUI(parent_notebook)
         self.inventory_manager_gui.create_gui()
+
+        self.vehicle_appearance_manager_gui = VehicleAppearanceManagerGUI(parent_notebook)
+        self.vehicle_appearance_manager_gui.create_gui()
 
     def create_notebook(self) -> ttk.Notebook:
         """Create the notebook that hosts the manager tabs."""
