@@ -133,10 +133,12 @@ PROPERTY_HUMAN = "human"
 # Weapon/ammo related strings
 BROWNING_M2_WEAPON = "browning_m2"
 HMGUN_USA_AMMO = "hmgun_usa"
-AMMO_KEYWORD = "ammo"
-BULLET_KEYWORD = "bullet"
 MP_PREFIX = "mp/"
 UNDERSCORE_SEPARATOR = "_"
+
+# Unit classes used for pickup ammo defaults
+UNIT_CLASS_SOLDIER = "soldier"
+UNIT_CLASS_VEHICLE = "vehicle"
 
 # ID constants
 DECEASED_MEMBER_ID = "0xffffffff"
@@ -440,43 +442,47 @@ class InventoryManager(GameManager):
     ) -> None:
         """Refill ammunition for weapons in inventory.
 
+        Weapons that belong to the unit's standard template are topped up to
+        their template amounts. Weapons outside the template (picked up or
+        swapped during the campaign) are refilled from the precomputed soldier
+        pickup defaults; if no unambiguous default exists, the weapon is
+        skipped and logged instead of guessing.
+
         Args:
             squad_member_inventory (EntityInventory): The squad member's inventory
             standard_inventory (list[BreedItemInfo]): Standard inventory items
             weapons_in_inventory (list[WeaponInfo]): Weapons currently in inventory
         """
+        template_weapons = set(
+            self.knowledge_base.find_weapons_in_breed_inventory_entries(
+                standard_inventory
+            )
+        )
+
         for weapon_info in weapons_in_inventory:
             weapon_name = weapon_info.weapon_name
             weapon_type = weapon_info.weapon_type.split("\\")[-1]
 
-            # Get matching breeds or similar items
-            matching_breeds = self.knowledge_base.search_for_breed_with_weapon(
-                weapon_name
-            )
-            if not matching_breeds:
-                matching_breeds = self.search_for_similar_item(weapon_name)
-                if not matching_breeds:
+            if weapon_name not in template_weapons:
+                pickup_ammo = self._resolve_pickup_ammo(
+                    weapon_info, UNIT_CLASS_SOLDIER
+                )
+                if pickup_ammo is None:
                     self.logger.log(
-                        f"No breeds with {weapon_name} found in knowledge base!"
+                        f"No pickup ammo default for {weapon_name} in "
+                        f"{squad_member_inventory.entity_id} inventory; skipping."
                     )
                     continue
+                self._refill_ammo_item(squad_member_inventory, pickup_ammo)
+                continue
 
-            # Select appropriate inventory based on breed
-            breed_standard_inventory = (
-                standard_inventory
-                if squad_member_inventory.entity_breed in matching_breeds
-                else self.knowledge_base.breeds_inventories[
-                    random.choice(matching_breeds)
-                ]
-            )
-
-            # Process each ammo item in inventory
-            for i, item in enumerate(breed_standard_inventory):
+            # Process each ammo item in the unit's own template inventory
+            for i, item in enumerate(standard_inventory):
                 if not "ammo" in item.game_item_name:
                     continue
 
                 ammo_type = self._determine_ammo_type(
-                    item, weapon_name, weapon_type, breed_standard_inventory, i
+                    item, weapon_name, weapon_type, standard_inventory, i
                 )
                 if not ammo_type:
                     continue
@@ -488,7 +494,12 @@ class InventoryManager(GameManager):
         squad_member_inventory: EntityInventory,
         standard_inventory: list[BreedItemInfo],
     ) -> None:
-        """Refill vehicle ammunition from standard inventory.
+        """Refill vehicle ammunition from the current vehicle inventory.
+
+        The current vehicle inventory is always the primary source of truth. A
+        fallback to other vehicles/breeds is used only when the current vehicle
+        does not define the weapon at all; it is never used to override a precise
+        weapon-family match already present on this vehicle.
 
         Args:
             squad_member_inventory (EntityInventory): The vehicle's inventory
@@ -552,89 +563,126 @@ class InventoryManager(GameManager):
                 )
                 weapons_in_vehicle_inventory.insert(0, item_name)
 
-        # Process ammunition for each weapon
-        ammo_counts = self._find_ammo_counts_in_vehicle_inventory_entries(
-            standard_inventory
-        )
-        max_ammo_amount = self._find_max_ammo_amount_in_vehicle_inventory_entries(
-            standard_inventory
-        )
-
-        # Only process weapons that are supposed to be in this vehicle type
-        relevant_weapons = weapons_in_inventory[: len(weapons_in_standard_inventory)]
-
-        for weapon_info in relevant_weapons:
+        # Process ammunition for each machinegun weapon present in inventory.
+        # Template weapons are topped up from the vehicle's own template
+        # inventory; weapons outside the template (added during the campaign)
+        # are refilled from the precomputed vehicle pickup defaults. Weapons
+        # that cannot be resolved unambiguously are skipped and logged.
+        for weapon_info in weapons_in_inventory:
             weapon_name = weapon_info.weapon_name
             weapon_type = weapon_info.weapon_type.split("\\")[-1]
 
             if weapon_type != "mgun":
                 continue
 
-            # Find appropriate inventory to use as reference
-            vehicle_standard_inventory = None
-            matching_vehicles = self.knowledge_base.search_for_vehicle_with_weapon(
-                weapon_name
-            )
+            refilled_ammo = False
+            if weapon_name in weapons_in_standard_inventory:
+                for i, item in enumerate(standard_inventory):
+                    if (
+                        "ammo" not in item.game_item_name
+                        or "bullet" in item.game_item_name
+                    ):
+                        continue
 
-            if matching_vehicles:
-                chosen_vehicle = random.choice(matching_vehicles)
-                vehicle_standard_inventory = self.knowledge_base.vehicle_inventories[
-                    chosen_vehicle
-                ]
+                    ammo_type = self._determine_vehicle_ammo_type(
+                        item, weapon_name, weapon_type, standard_inventory, i
+                    )
+
+                    if ammo_type:
+                        refilled_ammo = self._refill_vehicle_standard_ammo(
+                            squad_member_inventory, item, item.amount
+                        )
+                        break
             else:
-                matching_breeds = self.search_for_similar_item(weapon_name)
-                if matching_breeds:
-                    chosen_breed = random.choice(matching_breeds)
-                    vehicle_standard_inventory = self.knowledge_base.breeds_inventories[
-                        chosen_breed
-                    ]
-                else:
+                pickup_ammo = self._resolve_pickup_ammo(
+                    weapon_info, UNIT_CLASS_VEHICLE
+                )
+                if pickup_ammo is None:
                     self.logger.log(
-                        f"No vehicles and breeds with {weapon_name} found in knowledge base!"
+                        f"No pickup ammo default for {weapon_name} in "
+                        f"{squad_member_inventory.entity_id} inventory; skipping."
                     )
                     continue
-
-            # Find and add appropriate ammo for this weapon
-            refilled_ammo = False
-            for i, item in enumerate(vehicle_standard_inventory):
-                if "ammo" not in item.game_item_name or "bullet" in item.game_item_name:
-                    continue
-
-                ammo_type = self._determine_ammo_type(
-                    item, weapon_name, weapon_type, vehicle_standard_inventory, i
+                refilled_ammo = self._refill_vehicle_standard_ammo(
+                    squad_member_inventory, pickup_ammo, pickup_ammo.amount
                 )
 
-                if ammo_type:
-                    ammo_amount = ammo_counts.get(
-                        ammo_type,
-                        max_ammo_amount // len(weapons_in_standard_inventory) or 1,
-                    )
-                    refilled_ammo = self._refill_vehicle_standard_ammo(
-                        squad_member_inventory, item, ammo_amount
-                    )
-                    break
             if refilled_ammo:
                 self.logger.log(
                     f"Refilled ammunition for {weapon_name} in {squad_member_inventory.entity_id} inventory"
                 )
 
-    def _find_ammo_counts_in_vehicle_inventory_entries(
-        self, vehicle_inventory: list[BreedItemInfo]
-    ) -> dict[str, int]:
-        """Find ammunition counts in vehicle inventory entries.
+    def _resolve_pickup_ammo(
+        self, weapon_info: WeaponInfo, unit_class: str
+    ) -> BreedItemInfo | None:
+        """Resolve default ammo for a weapon outside the unit's template.
+
+        Candidates come from the precomputed per-class pickup defaults table
+        and are filtered by the strict weapon-family matcher. A single
+        unambiguous candidate is returned; ties and unknown weapons resolve
+        to None so the caller can skip instead of guessing.
 
         Args:
-            vehicle_inventory (list[BreedItemInfo]): Vehicle inventory items
+            weapon_info (WeaponInfo): Weapon to resolve ammo for
+            unit_class (str): "soldier" or "vehicle" defaults table to use
 
         Returns:
-            dict[str, int]: Mapping of ammo names to amounts
+            BreedItemInfo | None: Ammo item with default amount, or None
         """
-        return {
-            item.game_item_name: item.amount
-            for item in vehicle_inventory
-            if AMMO_KEYWORD in item.game_item_name
-            and BULLET_KEYWORD not in item.game_item_name
-        }
+        defaults = getattr(self.knowledge_base, "pickup_ammo_defaults", {}).get(
+            unit_class, {}
+        )
+        if not defaults:
+            return None
+
+        candidates: list[BreedItemInfo] = []
+        for ammo_name, amount in defaults.items():
+            candidate = BreedItemInfo(game_item_name=ammo_name, amount=amount)
+            resolved = self._determine_vehicle_ammo_type(
+                candidate,
+                weapon_info.weapon_name,
+                weapon_info.weapon_type,
+                [],
+                0,
+            )
+            if resolved:
+                candidates.append(candidate)
+
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            return None
+
+        normalized_weapon = re.sub(
+            r"[^a-z0-9]+", "_", weapon_info.weapon_name.lower()
+        ).strip("_")
+
+        # Multiple family-matched candidates: prefer the base variant (fewest
+        # tokens, e.g. "hmgun_usa.ammo" over "hmgun_usa.api.ammo"), then the
+        # highest name similarity. Only a true tie is skipped as ambiguous.
+        scored = []
+        for item in candidates:
+            normalized_ammo = re.sub(
+                r"[^a-z0-9]+", "_", item.game_item_name.lower()
+            ).strip("_")
+            token_count = len([token for token in normalized_ammo.split("_") if token])
+            similarity = SequenceMatcher(None, normalized_weapon, normalized_ammo).ratio()
+            scored.append((token_count, -similarity, item))
+
+        scored.sort(key=lambda entry: (entry[0], entry[1]))
+        best_key = (scored[0][0], scored[0][1])
+        best_matches = [
+            item for token_count, neg_similarity, item in scored
+            if (token_count, neg_similarity) == best_key
+        ]
+        if len(best_matches) == 1:
+            return best_matches[0]
+
+        self.logger.log(
+            f"Ambiguous pickup ammo for {weapon_info.weapon_name}: "
+            f"{[item.game_item_name for item in best_matches]}. Skipping."
+        )
+        return None
 
     def _refill_vehicle_standard_ammo(
         self,
@@ -707,25 +755,6 @@ class InventoryManager(GameManager):
         campaign_status_info.ap -= item_refill_cost
         return True
 
-    def _find_max_ammo_amount_in_vehicle_inventory_entries(
-        self, vehicle_inventory: list[BreedItemInfo]
-    ) -> int:
-        """Find maximum ammunition amount in vehicle inventory.
-
-        Args:
-            vehicle_inventory (list[BreedItemInfo]): Vehicle inventory items
-
-        Returns:
-            int: Maximum ammunition amount found
-        """
-        ammo_amounts = [
-            item.amount
-            for item in vehicle_inventory
-            if AMMO_KEYWORD in item.game_item_name
-            and BULLET_KEYWORD not in item.game_item_name
-        ]
-        return max(ammo_amounts, default=0)
-
     def _determine_ammo_type(
         self,
         item: BreedItemInfo,
@@ -735,6 +764,9 @@ class InventoryManager(GameManager):
         index: int,
     ) -> str:
         """Determine ammunition type for a weapon.
+
+        This is the generic soldier-weapon logic and intentionally keeps the broader
+        fallback behavior so the human squad refill flow remains unchanged.
 
         Args:
             item (BreedItemInfo): Item to check
@@ -752,6 +784,77 @@ class InventoryManager(GameManager):
             return ""
         if weapon_type in item.game_item_name:
             return item.game_item_name
+        if (
+            SequenceMatcher(None, weapon_name, item.game_item_name).ratio()
+            >= SIMILARITY_THRESHOLD
+        ):
+            return item.game_item_name
+        if index > 0 and inventory[index - 1].game_item_name == weapon_name:
+            return item.game_item_name
+        return ""
+
+    def _determine_vehicle_ammo_type(
+        self,
+        item: BreedItemInfo,
+        weapon_name: str,
+        weapon_type: str,
+        inventory: list,
+        index: int,
+    ) -> str:
+        """Determine ammunition type for vehicle-mounted weapons.
+
+        Vehicle ammo matching must be precise because some American vehicles carry
+        both standard Browning MG ammo and heavy Browning HMG ammo in the same
+        inventory. This helper rejects mismatched families instead of selecting the
+        first generic machinegun match.
+
+        Args:
+            item (BreedItemInfo): Item to check
+            weapon_name (str): Name of the weapon
+            weapon_type (str): Type of the weapon
+            inventory (list): Inventory items list
+            index (int): Index in inventory
+
+        Returns:
+            str: Ammunition type or empty string if not found
+        """
+        if "ammo" not in item.game_item_name or "bullet" in item.game_item_name:
+            return ""
+
+        normalized_weapon_name = re.sub(
+            r"[^a-z0-9]+", "_", weapon_name.lower()
+        ).strip("_")
+        normalized_item_name = re.sub(
+            r"[^a-z0-9]+", "_", item.game_item_name.lower()
+        ).strip("_")
+
+        item_tokens = set(token for token in normalized_item_name.split("_") if token)
+        weapon_tokens = set(token for token in normalized_weapon_name.split("_") if token)
+
+        item_is_heavy_mg_ammo = "hmgun" in item_tokens
+        item_is_standard_mg_ammo = "mgun" in item_tokens
+
+        weapon_is_heavy_mg = (
+            "browning_m2" in normalized_weapon_name
+            or "m2hb" in normalized_weapon_name
+            or "m2_hb" in normalized_weapon_name
+        )
+        weapon_is_standard_mg = (
+            "browning_m19a4" in normalized_weapon_name
+            or "m1917" in normalized_weapon_name
+            or "browning_m1917" in normalized_weapon_name
+            or (
+                "mgun" in weapon_tokens
+                and "hmgun" not in weapon_tokens
+                and "m2" not in weapon_tokens
+            )
+        )
+
+        if weapon_is_heavy_mg and item_is_heavy_mg_ammo and not item_is_standard_mg_ammo:
+            return item.game_item_name
+        if weapon_is_standard_mg and item_is_standard_mg_ammo and not item_is_heavy_mg_ammo:
+            return item.game_item_name
+
         if (
             SequenceMatcher(None, weapon_name, item.game_item_name).ratio()
             >= SIMILARITY_THRESHOLD
@@ -1119,19 +1222,6 @@ class InventoryManager(GameManager):
         hex_string = f"{HEX_PREFIX}{random_int:x}"
 
         return hex_string
-
-    def search_for_similar_item(self, item_name: str) -> list[str]:
-        """Search for breeds that have similar item names.
-
-        Args:
-            item_name (str): The item name to search for
-
-        Returns:
-            list[str]: List of breed names with matching items
-        """
-        item_name = item_name.split(UNDERSCORE_SEPARATOR)[0]
-        matching_breeds = self.knowledge_base.search_for_breed_with_item(item_name)
-        return matching_breeds
 
     def save_changes(self) -> None:
         """Save all changes to campaign files and inventories."""
