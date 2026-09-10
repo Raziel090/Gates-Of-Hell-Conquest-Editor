@@ -306,14 +306,17 @@ class EntityInventory:
             return False
 
     def fill_item_in_inventory(
-        self, item_name: str, current_inventory_amount: int = 0, max_amount: int = 1
+        self,
+        item_name: str,
+        max_amount: int = 1,
+        amount_to_add: int | None = None,
     ) -> int:
         """Fill existing item in inventory up to maximum amount.
 
         Args:
             item_name (str): Name of item to fill
-            current_inventory_amount (int): Current amount of item in inventory (default: 0)
-            max_amount (int): Maximum amount to fill to (default: 1)
+            max_amount (int): Maximum amount per stack (default: 1)
+            amount_to_add (int | None): Maximum quantity to add to a stack
 
         Returns:
             int: Amount actually added to existing item
@@ -331,22 +334,26 @@ class EntityInventory:
             if item_name in inventory_entry:
                 match = re.findall(pattern, inventory_entry)
                 if match:
-                    current_amount = match[0][0]
-                    current_amount = int(current_amount)
-                    if (
-                        max_amount - current_amount
-                        > max_amount - current_inventory_amount
-                    ):
-                        max_amount = max_amount - current_inventory_amount
-                    if current_amount <= max_amount:
-                        inventory_entry = re.sub(
-                            AMOUNT_REPLACEMENT_TEMPLATE.format(current_amount),
-                            AMOUNT_REPLACEMENT_TEMPLATE.format(str(max_amount)),
-                            inventory_entry,
-                        )
-                        self.inventory_entries[i] = inventory_entry
-                        self.create_inventory_matrix()
-                        return max_amount - current_amount
+                    current_amount = int(match[0][0])
+                    available_space = max_amount - current_amount
+                    if available_space <= 0:
+                        continue
+
+                    filled_amount = available_space
+                    if amount_to_add is not None:
+                        filled_amount = min(filled_amount, amount_to_add)
+                    if filled_amount <= 0:
+                        return 0
+
+                    updated_amount = current_amount + filled_amount
+                    inventory_entry = re.sub(
+                        AMOUNT_REPLACEMENT_TEMPLATE.format(current_amount),
+                        AMOUNT_REPLACEMENT_TEMPLATE.format(str(updated_amount)),
+                        inventory_entry,
+                    )
+                    self.inventory_entries[i] = inventory_entry
+                    self.create_inventory_matrix()
+                    return filled_amount
         return 0
 
     def count_items_in_inventory(self) -> None:

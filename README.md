@@ -31,6 +31,10 @@ Use this tab to handle equipment and resupply.
 - resupply all units in the campaign
 - add missing squad members if needed
 - check resources and current inventory state
+- refill partial stacks before adding new inventory entries
+- report items that cannot be added because the inventory is full
+- charge action points only for equipment and ammunition that were actually added
+- match vehicle ammunition to the relevant weapon, including vehicles with both standard and heavy machine guns
 
 This helps keep units ready for action and avoids manual inventory fixes.
 

@@ -10,7 +10,6 @@ import re
 import numpy as np
 
 from src.console_logger import ConsoleLogger
-from src.game_file_parser import GameNode, parse_game_file
 from src.constants import (
     # File extensions and patterns
     EXCLUDED_FILES_EXTENSIONS,
@@ -373,19 +372,6 @@ class KnowledgeBase:
 
         return breed_files_paths
 
-    def _get_entries_from_game_file(
-        self, file_path: str, container_name: str, entry_name: str
-    ) -> list[GameNode]:
-        """Extract named block entries from matching container blocks."""
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
-            root = parse_game_file(file.read())
-
-        return [
-            entry
-            for container in root.find_descendants(container_name, kind="block")
-            for entry in container.find_descendants(entry_name, kind="block")
-        ]
-
     def get_breeds_inventory_entries(self, breed_files_paths: list[str]) -> dict:
         """Extract inventory entries from breed definition files.
 
@@ -397,36 +383,36 @@ class KnowledgeBase:
         """
         breeds_inventory_entries = {}
         for file_path in breed_files_paths:
-            current_breed_inventory_entries = self._get_entries_from_game_file(
-                file_path, "inventory", "item"
-            )
+            with open(file_path, "r") as file:
+                current_breed_inventory_entries = []
+                for line in file:
+                    if "{inventory" in line:
+                        for subline in file:
+                            if "{item" in subline and ";{item" not in subline:
+                                current_breed_inventory_entries.append(subline)
+                            if subline == "\t}\n":
+                                break
+                        break
             if not current_breed_inventory_entries:
                 self.logger.log(
                     f"File {file_path} does not contain inventory information"
                 )
 
-                breed_name = PurePath(*PurePath(file_path).parts[-4:]).with_suffix(
-                    ""
-                ).as_posix()
+            breed_name = PurePath(*PurePath(file_path).parts[-4:]).with_suffix(
+                ""
+            ).as_posix()
 
-                breeds_inventory_entries[breed_name] = current_breed_inventory_entries
+            breeds_inventory_entries[breed_name] = current_breed_inventory_entries
         return breeds_inventory_entries
 
     def get_correct_item_name(self, item_name: str) -> str:
-        """Convert a raw inventory item name to its canonical lookup name.
-
-        Canonical names are the actual item filenames under the game ``stuff``
-        directory (for example ``mgun_usa.belt.ammo`` or ``hmgun_usa.ammo``).
-        Rather than pure string heuristics, this generates candidate names and
-        validates them against the real item-name set, so a transformation is
-        only applied when it produces a name that actually exists. Names with
-        no canonical match fall back to the plain dot-join unchanged.
+        """Convert raw item name to correct format for lookup.
 
         Args:
             item_name (str): Raw item name from game files
 
         Returns:
-            str: Canonical item name, or the plain dot-joined name
+            str: Correctly formatted item name
         """
         parts = item_name.split()
         if not parts:
@@ -468,34 +454,16 @@ class KnowledgeBase:
         return joined
 
     def convert_breed_inventory_entry_to_game_item_info(
-        self, breed_inventory_entry: str | GameNode
+        self, breed_inventory_entry: str
     ) -> BreedItemInfo | None:
         """Parse breed inventory entry into structured item information.
 
         Args:
-            breed_inventory_entry (str | GameNode): Raw or parsed inventory entry
+            breed_inventory_entry (str): Raw inventory entry string
 
         Returns:
             BreedItemInfo: Parsed breed item information
         """
-        if isinstance(breed_inventory_entry, GameNode):
-            if not breed_inventory_entry.args:
-                self.logger.log(f"Item name not found in: {breed_inventory_entry}")
-                return None
-
-            item_name = self.get_correct_item_name(breed_inventory_entry.args[0])
-            amount = 1
-            if breed_inventory_entry.name == "item" and len(breed_inventory_entry.args) > 1:
-                try:
-                    amount = int(np.floor(float(breed_inventory_entry.args[1]))) or 1
-                except ValueError:
-                    pass
-            return BreedItemInfo(
-                game_item_name=item_name,
-                amount=amount,
-                is_visible=breed_inventory_entry.name != WEAPON_KEYWORD,
-            )
-
         is_visible = True
         whole_pattern = r'\{item\s+"([^"]+)"\s+(\d+\.?\d*)'
 
@@ -725,9 +693,16 @@ class KnowledgeBase:
         """
         vehicles_inventory_entries = {}
         for file_path in vehicle_files_paths:
-            current_vehicle_inventory_entries = self._get_entries_from_game_file(
-                file_path, "inventory", "item"
-            )
+            with open(file_path, "r") as file:
+                current_vehicle_inventory_entries = []
+                for line in file:
+                    if "inventory" in line:
+                        for subline in file:
+                            if "{item" in subline and ";{item" not in subline:
+                                current_vehicle_inventory_entries.append(subline)
+                            if subline == "\t}\n":
+                                break
+                        break
 
             vehicle_name = PurePath(file_path).stem
 
@@ -747,18 +722,24 @@ class KnowledgeBase:
         """
         vehicles_invisible_inventory_entries = {}
         for file_path in vehicle_files_paths:
-            current_vehicle_inventory_entries = self._get_entries_from_game_file(
-                file_path, WEAPONRY_KEYWORD, WEAPON_KEYWORD
-            )
+            with open(file_path, "r") as file:
+                current_vehicle_inventory_entries = []
+                for line in file:
+                    if f"{{{WEAPONRY_KEYWORD}" in line:
+                        for subline in file:
+                            if (
+                                f"{{{WEAPON_KEYWORD}" in subline
+                                and f";{{{WEAPON_KEYWORD}" not in subline
+                            ):
+                                current_vehicle_inventory_entries.append(subline)
+                            if subline == "\t}\n":
+                                break
+                        break
 
             vehicle_name = PurePath(file_path).stem
 
             vehicles_invisible_inventory_entries[vehicle_name] = list(
-                {
-                    entry.args[0]: entry
-                    for entry in current_vehicle_inventory_entries
-                    if entry.args
-                }.values()
+                set(current_vehicle_inventory_entries)
             )
         return vehicles_invisible_inventory_entries
 
