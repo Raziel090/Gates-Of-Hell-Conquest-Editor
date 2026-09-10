@@ -99,7 +99,8 @@ class GameManager:
         Returns:
             list[SquadInventory]: List of squad inventory objects
         """
-        assert self.squads, NO_SQUADS_ERROR
+        if not self.squads:
+            raise ValueError(NO_SQUADS_ERROR)
 
         squads_inventories = []
         for squad_info in self.squads:

@@ -192,10 +192,13 @@ class EntityInventory:
             y_size = int(item_size[Y_SIZE_KEY])
             for i in range(x_size):
                 for j in range(y_size):
-                    assert (
+                    if (
                         inventory_matrix[start_cell_x + i][start_cell_y + j]
-                        != OCCUPIED_CELL_VALUE
-                    )
+                        == OCCUPIED_CELL_VALUE
+                    ):
+                        raise ItemFitError(
+                            f"Inventory items overlap at ({start_cell_x + i}, {start_cell_y + j})."
+                        )
                     inventory_matrix[start_cell_x + i][
                         start_cell_y + j
                     ] = OCCUPIED_CELL_VALUE
@@ -214,7 +217,8 @@ class EntityInventory:
         Raises:
             ItemFitError: If item cannot fit in available inventory space
         """
-        assert self.inventory_matrix is not None, INVENTORY_MATRIX_ERROR
+        if self.inventory_matrix is None:
+            raise ValueError(INVENTORY_MATRIX_ERROR)
         item_size = self.knowledge_base.item_sizes[item_name]
         x_size = int(item_size[X_SIZE_KEY])
         y_size = int(item_size[Y_SIZE_KEY])

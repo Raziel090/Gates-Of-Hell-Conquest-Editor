@@ -750,7 +750,10 @@ class InventoryManager(GameManager):
             if HMGUN_USA_AMMO in item.game_item_name:
                 return item.game_item_name
             return ""
-        if weapon_type in item.game_item_name:
+        if re.search(
+            rf"(?:^|[_\s]){re.escape(weapon_type)}(?:$|[_\s])",
+            item.game_item_name,
+        ):
             return item.game_item_name
         if (
             SequenceMatcher(None, weapon_name, item.game_item_name).ratio()
