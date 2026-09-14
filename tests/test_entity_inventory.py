@@ -44,6 +44,20 @@ class EntityInventoryTests(unittest.TestCase):
 
         self.assertEqual(hints["return"], GameItemInfo)
 
+    def test_fill_item_skips_full_stacks_and_fills_partial_stack(self) -> None:
+        self.inventory.inventory_entries = [
+            '\t{item "test" 5 {cell 0 0}}\n',
+            '\t{item "test" 2 {cell 1 0}}\n',
+        ]
+        self.inventory.create_inventory_matrix = lambda: None
+
+        filled_amount = self.inventory.fill_item_in_inventory(
+            "test", max_amount=5, amount_to_add=3
+        )
+
+        self.assertEqual(filled_amount, 3)
+        self.assertIn('"test" 5 {cell 1 0}', self.inventory.inventory_entries[1])
+
 
 if __name__ == "__main__":
     unittest.main()

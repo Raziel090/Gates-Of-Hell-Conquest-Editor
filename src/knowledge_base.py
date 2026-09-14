@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import glob
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import re
 
 import numpy as np
@@ -114,6 +114,7 @@ class KnowledgeBase:
         self.vehicles_costs: dict[str, float] = {}
         self.campaign_status_info: CampaignStatusInfo | None = None
         self.item_weights: dict[str, float] = {}
+        self.canonical_item_names: set[str] = set()
 
     def init_knowledge_base(self) -> None:
         """Initialize all knowledge base components by loading game data."""
@@ -317,8 +318,12 @@ class KnowledgeBase:
 
     def get_item_inventory_size_information(self) -> None:
         """Load and process all item inventory size information."""
-        assert self.game_items_path.exists(), "Game items path does not exist!"
+        if not self.game_items_path.exists():
+            raise FileNotFoundError("Game items path does not exist!")
         item_files_paths = self.get_item_files_paths()
+        self.canonical_item_names = {
+            PurePath(item_file_path).name for item_file_path in item_files_paths
+        }
         item_pattern_files_paths = [
             item_file_path
             for item_file_path in item_files_paths
@@ -331,14 +336,17 @@ class KnowledgeBase:
         ]
 
         self.item_pattern_sizes = self.get_item_pattern_sizes(item_pattern_files_paths)
-        assert self.item_pattern_sizes != {}
+        if not self.item_pattern_sizes:
+            raise RuntimeError("Item pattern sizes could not be loaded.")
 
         self.item_sizes = self.get_item_sizes(item_files_paths)
-        assert self.item_sizes != {}
+        if not self.item_sizes:
+            raise RuntimeError("Item sizes could not be loaded.")
 
         block_sizes = self.handle_exceptions_for_block_sizes(item_files_paths)
         self.item_block_sizes.update(block_sizes)
-        assert self.item_block_sizes != {}
+        if not self.item_block_sizes:
+            raise RuntimeError("Item block sizes could not be loaded.")
 
     def get_breed_files_paths(self) -> list[str]:
         """Get all breed file paths from game data directory.
@@ -378,23 +386,23 @@ class KnowledgeBase:
             with open(file_path, "r") as file:
                 current_breed_inventory_entries = []
                 for line in file:
-                    if f"{{inventory" in line:
+                    if "{inventory" in line:
                         for subline in file:
                             if "{item" in subline and ";{item" not in subline:
                                 current_breed_inventory_entries.append(subline)
                             if subline == "\t}\n":
                                 break
                         break
-                if not current_breed_inventory_entries:
-                    self.logger.log(
-                        f"File {file_path} does not contain inventory information"
-                    )
+            if not current_breed_inventory_entries:
+                self.logger.log(
+                    f"File {file_path} does not contain inventory information"
+                )
 
-                breed_name_split = file_path.split("\\")[-4:]
-                breed_name = "/".join(breed_name_split)
-                breed_name = re.sub(".set", "", breed_name)
+            breed_name = PurePath(*PurePath(file_path).parts[-4:]).with_suffix(
+                ""
+            ).as_posix()
 
-                breeds_inventory_entries[breed_name] = current_breed_inventory_entries
+            breeds_inventory_entries[breed_name] = current_breed_inventory_entries
         return breeds_inventory_entries
 
     def get_correct_item_name(self, item_name: str) -> str:
@@ -406,31 +414,44 @@ class KnowledgeBase:
         Returns:
             str: Correctly formatted item name
         """
-        item_name_parts = item_name.split()
-        if "usa_grenade" in item_name:
-            return f"{item_name_parts[0]}.{item_name_parts[2]}.{item_name_parts[1]}"
-        if "mgun_" in item_name:
-            if item_name_parts[0] == "ammo":
-                if "mgun_usa" == item_name_parts[1] and "belt" not in item_name:
-                    return item_name_parts[1] + f".belt.{item_name_parts[0]}"
-                return ".".join(item_name_parts[1:]) + f".{item_name_parts[0]}"
-            elif "ammo" not in item_name_parts:
-                return ".".join(item_name_parts) + ".ammo"
-        if "bullet" in item_name:
-            if item_name_parts[0] == "ammo":
-                return ".".join(item_name_parts[1:]) + f".{item_name_parts[0]}"
-            elif "ammo" not in item_name_parts:
-                return ".".join(item_name_parts) + ".ammo"
+        parts = item_name.split()
+        if not parts:
+            return item_name
 
-        if item_name_parts[0] == "ammo":
-            return ".".join(item_name_parts[1:]) + f".{item_name_parts[0]}"
-        if item_name_parts[0] == "weapon":
-            return ".".join(item_name_parts[1:]) + f".{item_name_parts[0]}"
-        if "mortar" in item_name:
-            if item_name_parts[-1] != "ammo":
-                return ".".join(item_name_parts) + ".ammo"
+        canonical = self.canonical_item_names
+        joined = ".".join(parts)
 
-        return ".".join(item_name_parts)
+        def valid(candidate: str) -> str:
+            """Return the candidate if it is a real item, else the fallback."""
+            if not canonical or candidate in canonical:
+                return candidate
+            return joined
+
+        # Special reorder: "X usa_grenade Y" -> "X.Y.usa_grenade"
+        if "usa_grenade" in item_name and len(parts) >= 3:
+            return valid(f"{parts[0]}.{parts[2]}.{parts[1]}")
+
+        # Ammo-prefixed names reorder the qualifier before the "ammo" suffix.
+        if parts[0] == "ammo" and len(parts) >= 2:
+            # "ammo mgun_usa" (no belt) is actually the belt variant.
+            if parts[1] == "mgun_usa" and "belt" not in item_name:
+                belted = f"{parts[1]}.belt.{parts[0]}"
+                if not canonical or belted in canonical:
+                    return belted
+            return valid(".".join(parts[1:]) + f".{parts[0]}")
+        if parts[0] == "weapon" and len(parts) >= 2:
+            return valid(".".join(parts[1:]) + f".{parts[0]}")
+
+        # Bare ammunition names gain an ".ammo" suffix, but only when that
+        # produces a real item (e.g. "230mm_spigot_mortar" is already the item,
+        # so it must not be suffixed; "bulletrus_305" has no .ammo file, so it
+        # falls back to the plain join rather than a non-existent name).
+        if "ammo" not in parts and any(
+            keyword in item_name for keyword in ("mgun_", "bullet", "mortar")
+        ):
+            return valid(joined + ".ammo")
+
+        return joined
 
     def convert_breed_inventory_entry_to_game_item_info(
         self, breed_inventory_entry: str
@@ -438,7 +459,7 @@ class KnowledgeBase:
         """Parse breed inventory entry into structured item information.
 
         Args:
-            breed_inventory_entry (str): Raw breed inventory entry string
+            breed_inventory_entry (str): Raw inventory entry string
 
         Returns:
             BreedItemInfo: Parsed breed item information
@@ -480,7 +501,8 @@ class KnowledgeBase:
 
     def get_breeds_inventory_information(self) -> None:
         """Load and process breed inventory information from game files."""
-        assert self.game_breeds_path.exists(), "Game breeds path does not exist!"
+        if not self.game_breeds_path.exists():
+            raise FileNotFoundError("Game breeds path does not exist!")
         breed_files_paths = self.get_breed_files_paths()
 
         breeds_inventory_entries = self.get_breeds_inventory_entries(breed_files_paths)
@@ -505,7 +527,8 @@ class KnowledgeBase:
 
     def get_weapons_list(self) -> None:
         """Load and process weapons information from game files."""
-        assert self.game_items_path.exists(), "Game items path does not exist!"
+        if not self.game_items_path.exists():
+            raise FileNotFoundError("Game items path does not exist!")
         item_files_paths = self.get_item_files_paths()
 
         item_files_paths = [
@@ -552,14 +575,15 @@ class KnowledgeBase:
         """
         weapons_list = []
         for item_file_path in item_files_paths:
-            item_file_path_split = item_file_path.split("\\")
-            item_name = item_file_path_split[-1]
+            item_path = PurePath(item_file_path)
+            item_path_parts = item_path.parts
+            item_name = item_path.name
 
             item_type = ""
-            if item_file_path_split[-2] != "stuff":
-                item_type = item_file_path_split[-2]
-            if item_file_path_split[-3] != "stuff":
-                item_type = f"{item_file_path_split[-3]}\\{item_type}"
+            if item_path_parts[-2] != "stuff":
+                item_type = item_path_parts[-2]
+            if item_path_parts[-3] != "stuff":
+                item_type = f"{item_path_parts[-3]}\\{item_type}"
 
             with open(item_file_path, "r") as item_file:
                 item_info = item_file.read()
@@ -672,7 +696,7 @@ class KnowledgeBase:
             with open(file_path, "r") as file:
                 current_vehicle_inventory_entries = []
                 for line in file:
-                    if f"inventory" in line:
+                    if "inventory" in line:
                         for subline in file:
                             if "{item" in subline and ";{item" not in subline:
                                 current_vehicle_inventory_entries.append(subline)
@@ -680,12 +704,9 @@ class KnowledgeBase:
                                 break
                         break
 
-                vehicle_name = file_path.split("\\")[-1]
-                vehicle_name = re.sub(r"\.(def)$", "", vehicle_name)
+            vehicle_name = PurePath(file_path).stem
 
-                vehicles_inventory_entries[vehicle_name] = (
-                    current_vehicle_inventory_entries
-                )
+            vehicles_inventory_entries[vehicle_name] = current_vehicle_inventory_entries
         return vehicles_inventory_entries
 
     def get_vehicles_invisible_inventory_entries(
@@ -715,12 +736,11 @@ class KnowledgeBase:
                                 break
                         break
 
-                vehicle_name = file_path.split("\\")[-1]
-                vehicle_name = re.sub(r"\.(def)$", "", vehicle_name)
+            vehicle_name = PurePath(file_path).stem
 
-                vehicles_invisible_inventory_entries[vehicle_name] = list(
-                    set(current_vehicle_inventory_entries)
-                )
+            vehicles_invisible_inventory_entries[vehicle_name] = list(
+                set(current_vehicle_inventory_entries)
+            )
         return vehicles_invisible_inventory_entries
 
     def get_vehicles_inventories_inclusions(
@@ -744,15 +764,14 @@ class KnowledgeBase:
                     if "/properties/" in match:
                         continue
 
-                    file_path_split = file_path.split("\\")
-                    vehicle_name = file_path_split[-1]
-                    vehicle_name = re.sub(".def", "", vehicle_name)
+                    vehicle_name = PurePath(file_path).stem
                     inclusions[vehicle_name] = f"{matches[0]}.inc"
 
         return inclusions
 
     def get_vehicles_inventory_information(self) -> None:
-        assert self.game_vehicles_path.exists(), "Game vehicles path does not exist!"
+        if not self.game_vehicles_path.exists():
+            raise FileNotFoundError("Game vehicles path does not exist!")
         vehicle_files_paths = self.get_vehicle_files_paths()
 
         def_files = [
@@ -871,14 +890,14 @@ class KnowledgeBase:
 
     def get_vehicle_properties(self) -> None:
         """Load and process vehicle properties from game files."""
-        assert self.game_vehicles_path.exists(), "Game vehicles path does not exist!"
+        if not self.game_vehicles_path.exists():
+            raise FileNotFoundError("Game vehicles path does not exist!")
         vehicle_files_paths = self.get_vehicle_files_paths()
         vehicle_properties = {}
         vehicle_fuel_properties = {}
         for file_path in vehicle_files_paths:
 
-            file_path_split = file_path.split("\\")
-            vehicle_name = re.sub(r"\.(def)$", "", file_path_split[-1])
+            vehicle_name = PurePath(file_path).stem
 
             with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
                 content = file.read()
@@ -895,8 +914,7 @@ class KnowledgeBase:
                 )
 
         for file_path in vehicle_files_paths:
-            file_path_split = file_path.split("\\")
-            vehicle_name = re.sub(r"\.(def)$", "", file_path_split[-1])
+            vehicle_name = PurePath(file_path).stem
 
             if vehicle_properties[vehicle_name] == []:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
@@ -959,9 +977,7 @@ class KnowledgeBase:
         properties_inventory_entries = {}
         properties_inventory_sizes = {}
         for file_path in properties_files_paths:
-            file_path_split = file_path.split("\\")
-            property_name = file_path_split[-1]
-            property_name = re.sub(r"\.ext$", "", property_name)
+            property_name = PurePath(file_path).stem
             with open(file_path, "r") as file:
                 current_property_inventory_entries = []
                 for line in file:
@@ -1000,8 +1016,11 @@ class KnowledgeBase:
                 current_inclusions = []
                 for match in matches:
                     property_name = match.group(1)
-                    if "/properties/" in property_name:
-                        property_name = re.sub(r"/properties/", "", property_name)
+                    property_path = PurePath(property_name)
+                    if "properties" in property_path.parts:
+                        property_name = property_path.relative_to(
+                            PurePath("/properties")
+                        ).as_posix()
 
                     included_property_file_path = str(
                         self.game_properties_path / f"{property_name}.ext"
@@ -1017,17 +1036,14 @@ class KnowledgeBase:
         for file_path in properties_files_paths:
             resolved_inclusions = resolve_inclusions_for_property(file_path)
             resolved_inclusions.append(file_path)
-            file_path_split = file_path.split("\\")
-            property_name = file_path_split[-1]
-            property_name = re.sub(r"\.ext$", "", property_name)
+            property_name = PurePath(file_path).stem
             inclusions[property_name] = resolved_inclusions
         return inclusions
 
     def get_inventory_information_from_properties(self) -> None:
         """Load inventory information from properties files."""
-        assert (
-            self.game_properties_path.exists()
-        ), "Game properties path does not exist!"
+        if not self.game_properties_path.exists():
+            raise FileNotFoundError("Game properties path does not exist!")
         properties_files_paths = self.get_properties_files_paths()
         properties_files_paths = [
             file_path for file_path in properties_files_paths if ".ext" in file_path
@@ -1063,10 +1079,10 @@ class KnowledgeBase:
 
     def get_squads_compositions(self) -> None:
         """Load squad compositions from conquest units files."""
-        assert (
-            self.game_conquest_units_path.exists()
-        ), "Game conquest units path does not exist!"
-        assert self.infantry_costs != {}, "Infantry costs are not set!"
+        if not self.game_conquest_units_path.exists():
+            raise FileNotFoundError("Game conquest units path does not exist!")
+        if not self.infantry_costs:
+            raise RuntimeError("Infantry costs are not set!")
 
         files_with_squads_compositions = glob.glob(
             f"{str(self.game_conquest_units_path)}/**/*", recursive=True
@@ -1247,9 +1263,8 @@ class KnowledgeBase:
 
     def get_infantry_costs(self) -> None:
         """Load infantry costs from conquest units files."""
-        assert (
-            self.game_conquest_units_path.exists()
-        ), "Game conquest units path does not exist!"
+        if not self.game_conquest_units_path.exists():
+            raise FileNotFoundError("Game conquest units path does not exist!")
 
         files_with_infantry_costs = glob.glob(
             f"{str(self.game_conquest_units_path)}/**/*", recursive=True
@@ -1307,9 +1322,8 @@ class KnowledgeBase:
 
     def create_vehicles_properties(self) -> None:
         """Create vehicles properties from loaded data."""
-        assert (
-            self.vehicles_properties_lists != {}
-        ), "Vehicles properties lists are empty!"
+        if not self.vehicles_properties_lists:
+            raise RuntimeError("Vehicles properties lists are empty!")
         vehicles_properties = {}
         for (
             vehicle_name,
@@ -1318,7 +1332,8 @@ class KnowledgeBase:
             if vehicle_property_types:
                 vehicles_properties[vehicle_name] = vehicle_property_types[0]
 
-        assert vehicles_properties != {}
+        if not vehicles_properties:
+            raise RuntimeError("Vehicle properties could not be created.")
         self.vehicles_properties = vehicles_properties
 
     def find_weapons_in_breed_inventory_entries(
@@ -1340,9 +1355,8 @@ class KnowledgeBase:
 
     def get_campaign_status_information(self) -> None:
         """Load campaign status information from file."""
-        assert (
-            self.campaign_status_file_path.exists()
-        ), "Campaign status file path does not exist!"
+        if not self.campaign_status_file_path.exists():
+            raise FileNotFoundError("Campaign status file path does not exist!")
 
         with open(self.campaign_status_file_path, "r") as file:
             campaign_status_values = {}
@@ -1372,7 +1386,8 @@ class KnowledgeBase:
 
     def get_item_weights(self) -> None:
         """Load item weights from game files."""
-        assert self.game_items_path.exists(), "Game items path does not exist!"
+        if not self.game_items_path.exists():
+            raise FileNotFoundError("Game items path does not exist!")
         item_files_paths = self.get_item_files_paths()
         item_weights = {}
         for item_file_path in item_files_paths:

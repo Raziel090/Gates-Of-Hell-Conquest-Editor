@@ -406,24 +406,30 @@ class InventoryManager(GameManager):
                 )
                 item_block_size = int(item_block_size)
 
-                in_game_item_full_stacks = item_amount // item_block_size
-                in_game_item_remainder = item_amount % item_block_size
-                added_item = False
-                for _ in range(in_game_item_full_stacks):
-                    added_item = squad_member_inventory.add_item_to_inventory(
-                        item_name, amount=item_block_size
-                    )
-                if in_game_item_remainder > 0:
-                    added_item = squad_member_inventory.add_item_to_inventory(
-                        item_name, amount=in_game_item_remainder
-                    )
+                added_amount = self._fill_existing_item_stacks(
+                    squad_member_inventory, item_name, item_amount, item_block_size
+                )
+                remaining_amount = item_amount - added_amount
+                while remaining_amount > 0:
+                    stack_amount = min(remaining_amount, item_block_size)
+                    if not squad_member_inventory.add_item_to_inventory(
+                        item_name, amount=stack_amount
+                    ):
+                        self.logger.log(
+                            f"Could not add {remaining_amount} of {item_name} to {squad_member_inventory.entity_id} because the inventory is full."
+                        )
+                        break
+                    added_amount += stack_amount
+                    remaining_amount -= stack_amount
 
-                campaign_status_info.ap -= item_refill_cost
-
-                if added_item:
+                if added_amount > 0:
+                    item_refill_cost = (
+                        self.knowledge_base.item_weights[item_name] * added_amount
+                    )
+                    campaign_status_info.ap -= item_refill_cost
                     self.logger.log(
                         LOG_ITEM_ADDED.format(
-                            amount=item_amount,
+                            amount=added_amount,
                             item_name=item_name,
                             cost=item_refill_cost,
                             entity_id=squad_member_inventory.entity_id,
@@ -431,6 +437,26 @@ class InventoryManager(GameManager):
                     )
             else:
                 continue
+
+    def _fill_existing_item_stacks(
+        self,
+        squad_member_inventory: EntityInventory,
+        item_name: str,
+        amount_to_add: int,
+        stack_size: int,
+    ) -> int:
+        """Fill partial stacks of an item and return the quantity inserted."""
+        filled_amount = 0
+        while filled_amount < amount_to_add:
+            difference = squad_member_inventory.fill_item_in_inventory(
+                item_name,
+                max_amount=stack_size,
+                amount_to_add=amount_to_add - filled_amount,
+            )
+            if difference == 0:
+                break
+            filled_amount += difference
+        return filled_amount
 
     def refill_ammunition(
         self,
@@ -674,38 +700,37 @@ class InventoryManager(GameManager):
             )
             return False
 
-        # Fill existing stacks first
-        filled_amount = 0
-        difference = 1  # Initialize to enter loop
-        while difference > 0:
-            difference = squad_member_inventory.fill_item_in_inventory(
-                item_name,
-                current_inventory_amount=current_amount,
-                max_amount=target_amount,
-            )
-            filled_amount += difference
-            current_amount += filled_amount
+        missing_amount = target_amount - current_amount
+        filled_amount = self._fill_existing_item_stacks(
+            squad_member_inventory, item_name, missing_amount, target_amount
+        )
+        current_amount += filled_amount
 
         # Add new stack if needed
         remaining_amount = target_amount - current_amount
+        added_amount = filled_amount
         if remaining_amount > 0:
-            squad_member_inventory.add_item_to_inventory(
+            if squad_member_inventory.add_item_to_inventory(
                 item_name, amount=remaining_amount
-            )
-            self.logger.log(
-                f"Added {remaining_amount} of {item_name} to inventory of {squad_member_inventory.entity_id}."
-            )
+            ):
+                added_amount += remaining_amount
+                self.logger.log(
+                    f"Added {remaining_amount} of {item_name} to inventory of {squad_member_inventory.entity_id}."
+                )
+            else:
+                self.logger.log(
+                    f"Could not add {remaining_amount} of {item_name} to {squad_member_inventory.entity_id} because the inventory is full."
+                )
 
-        total_added = filled_amount + (remaining_amount if remaining_amount > 0 else 0)
-        if total_added > 0:
+        if added_amount > 0:
+            item_refill_cost = round(item_mass * added_amount, 1)
             self.logger.log(
-                f"Total {total_added} of {item_name} for {item_refill_cost} AP added to {squad_member_inventory.entity_id}."
+                f"Total {added_amount} of {item_name} for {item_refill_cost} AP added to {squad_member_inventory.entity_id}."
             )
+            campaign_status_info.ap -= item_refill_cost
 
         squad_member_inventory.count_items_in_inventory()
-
-        campaign_status_info.ap -= item_refill_cost
-        return True
+        return added_amount > 0
 
     def _find_max_ammo_amount_in_vehicle_inventory_entries(
         self, vehicle_inventory: list[BreedItemInfo]
@@ -750,7 +775,10 @@ class InventoryManager(GameManager):
             if HMGUN_USA_AMMO in item.game_item_name:
                 return item.game_item_name
             return ""
-        if weapon_type in item.game_item_name:
+        if re.search(
+            rf"(?:^|[_\s]){re.escape(weapon_type)}(?:$|[_\s])",
+            item.game_item_name,
+        ):
             return item.game_item_name
         if (
             SequenceMatcher(None, weapon_name, item.game_item_name).ratio()
@@ -796,51 +824,37 @@ class InventoryManager(GameManager):
 
         item_block_size = int(self.knowledge_base.item_block_sizes.get(item_name, "1"))
 
-        # Fill existing stacks first
-        filled_amount = 0
-        while True:
-            difference = squad_member_inventory.fill_item_in_inventory(
-                item_name,
-                current_inventory_amount=current_amount,
-                max_amount=item_block_size,
-            )
-            if difference == 0:
-                break
-            filled_amount += difference
-            current_amount += filled_amount
+        missing_amount = target_amount - current_amount
+        filled_amount = self._fill_existing_item_stacks(
+            squad_member_inventory, item_name, missing_amount, item_block_size
+        )
+        current_amount += filled_amount
 
         # Add new stacks if needed
         remaining_amount = target_amount - current_amount
-        if remaining_amount <= 0:
+        added_amount = filled_amount
+        if remaining_amount > 0:
+            while remaining_amount > 0:
+                stack_amount = min(remaining_amount, item_block_size)
+                if not squad_member_inventory.add_item_to_inventory(
+                    item_name, amount=stack_amount
+                ):
+                    self.logger.log(
+                        f"Could not add {remaining_amount} of {item_name} to {squad_member_inventory.entity_id} because the inventory is full."
+                    )
+                    break
+                added_amount += stack_amount
+                remaining_amount -= stack_amount
+                self.logger.log(
+                    f"Added {stack_amount} of {item_name} to inventory of {squad_member_inventory.entity_id}."
+                )
+
+        if added_amount > 0:
+            item_refill_cost = round(item_mass * added_amount, 1)
+            campaign_status_info.ap -= item_refill_cost
             self.logger.log(
-                f"Total {filled_amount} of {item_name} added to {squad_member_inventory.entity_id} for {item_refill_cost} AP."
+                f"Total {added_amount} of {item_name} for {item_refill_cost} AP added to {squad_member_inventory.entity_id}."
             )
-            return
-
-        full_stacks = remaining_amount // item_block_size
-        remainder = remaining_amount % item_block_size
-
-        for _ in range(full_stacks):
-            if squad_member_inventory.add_item_to_inventory(
-                item_name, amount=item_block_size
-            ):
-                self.logger.log(
-                    f"Added {item_block_size} of {item_name} to inventory of {squad_member_inventory.entity_id}."
-                )
-
-        if remainder > 0:
-            if squad_member_inventory.add_item_to_inventory(
-                item_name, amount=remainder
-            ):
-                self.logger.log(
-                    f"Added {remainder} of {item_name} to inventory of {squad_member_inventory.entity_id}."
-                )
-
-        campaign_status_info.ap -= item_refill_cost
-
-        self.logger.log(
-            f"Total {filled_amount + remaining_amount} of {item_name} for {item_refill_cost} AP added to {squad_member_inventory.entity_id}."
-        )
 
     def refill_supplies_resources(
         self, squad_member_inventory: EntityInventory

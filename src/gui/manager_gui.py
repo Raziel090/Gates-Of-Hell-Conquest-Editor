@@ -1,6 +1,6 @@
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 from tkinter import filedialog, ttk
 import tkinter as tk
 from typing import Optional
@@ -650,7 +650,7 @@ class ManagerGUI:
             )
             self._log(f"Loaded campaign file from cache: {self.campaign_file_path}")
 
-            self.campaign_name_str_var.set(os.path.basename(self.campaign_file_path))
+            self.campaign_name_str_var.set(PurePath(self.campaign_file_path).name)
 
     def prepare_manager_from_cache(self) -> None:
         """Initialize the manager from cached settings when available."""
