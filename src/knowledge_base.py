@@ -1,15 +1,19 @@
 """Game knowledge database for items, weapons, breeds, and game mechanics."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import glob
+import hashlib
+import json
 import math
 import os
 from pathlib import Path, PurePath
 import re
+import statistics
 
 import numpy as np
 
 from src.console_logger import ConsoleLogger
+from src.game_file_parser import node_to_entry_string, parse_game_file
 from src.constants import (
     # File extensions and patterns
     EXCLUDED_FILES_EXTENSIONS,
@@ -116,8 +120,8 @@ class KnowledgeBase:
         self.item_weights: dict[str, float] = {}
         self.canonical_item_names: set[str] = set()
 
-    def init_knowledge_base(self) -> None:
-        """Initialize all knowledge base components by loading game data."""
+    def _build_knowledge_base(self) -> None:
+        """Run the full game-data parse to populate all knowledge base state."""
         self.get_item_inventory_size_information()
         self.get_breeds_inventory_information()
         self.get_vehicle_properties()
@@ -127,8 +131,200 @@ class KnowledgeBase:
         self.create_vehicles_properties()
         self.get_infantry_costs()
         self.get_squads_compositions()
-        self.get_campaign_status_information()
         self.get_item_weights()
+        self.get_pickup_ammo_defaults()
+
+    _CACHEABLE_FIELDS = (
+        "item_pattern_sizes",
+        "item_sizes",
+        "item_block_sizes",
+        "breeds_inventories",
+        "vehicle_inventories",
+        "weapons_list",
+        "vehicles_properties_lists",
+        "vehicles_properties",
+        "vehicles_fuel_properties",
+        "properties_inventory_sizes",
+        "properties_inventory_entries",
+        "squad_compositions",
+        "infantry_costs",
+        "vehicles_costs",
+        "item_weights",
+        "pickup_ammo_defaults",
+    )
+
+    def _compute_kb_fingerprint(self) -> str:
+        """Compute a fingerprint of the game data input file set.
+
+        Uses each input file's relative path, size, and modification time so
+        any game data change invalidates the cache.
+
+        Returns:
+            str: Hex digest fingerprint of the input files
+        """
+        digest = hashlib.sha256()
+        for root_dir in (
+            self.game_items_path,
+            self.game_breeds_path,
+            self.game_vehicles_path,
+            self.game_properties_path,
+            self.game_conquest_units_path,
+        ):
+            if not root_dir.exists():
+                continue
+            for dirpath, _, filenames in os.walk(root_dir):
+                for filename in sorted(filenames):
+                    file_path = Path(dirpath) / filename
+                    try:
+                        stat = file_path.stat()
+                    except OSError:
+                        continue
+                    relative = file_path.relative_to(self.data_dir_path)
+                    digest.update(str(relative).encode("utf-8"))
+                    digest.update(str(stat.st_size).encode("utf-8"))
+                    digest.update(str(int(stat.st_mtime)).encode("utf-8"))
+        return digest.hexdigest()
+
+    def _serialize_cache_payload(self) -> dict:
+        """Serialize the cacheable knowledge base state to a JSON-safe dict."""
+        payload: dict = {}
+        for field_name in self._CACHEABLE_FIELDS:
+            value = getattr(self, field_name, None)
+            payload[field_name] = self._jsonify(value)
+        return payload
+
+    @staticmethod
+    def _jsonify(value):
+        """Convert dataclasses and nested structures to JSON-safe values."""
+        if isinstance(value, dict):
+            return {k: KnowledgeBase._jsonify(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [KnowledgeBase._jsonify(v) for v in value]
+        if isinstance(value, (BreedItemInfo, SquadCompositionInfo, WeaponInfo)):
+            return asdict(value)
+        return value
+
+    def _save_knowledge_base_cache(self, fingerprint: str) -> None:
+        """Persist the knowledge base payload and fingerprint to disk."""
+        try:
+            payload = {
+                "fingerprint": fingerprint,
+                "data": self._serialize_cache_payload(),
+            }
+            with open(self.kb_cache_path, "w", encoding="utf-8") as cache_file:
+                json.dump(payload, cache_file)
+        except (OSError, TypeError) as exc:
+            self.logger.log(f"Failed to write knowledge base cache: {exc}")
+
+    def _load_knowledge_base_cache(self, fingerprint: str) -> bool:
+        """Load the knowledge base payload from disk if the fingerprint matches.
+
+        Args:
+            fingerprint (str): Current input file fingerprint
+
+        Returns:
+            bool: True if a valid matching cache was loaded
+        """
+        if not self.kb_cache_path.exists():
+            return False
+        try:
+            with open(self.kb_cache_path, "r", encoding="utf-8") as cache_file:
+                payload = json.load(cache_file)
+        except (json.JSONDecodeError, OSError) as exc:
+            self.logger.log(f"Knowledge base cache unreadable, recomputing: {exc}")
+            return False
+
+        if not isinstance(payload, dict) or payload.get("fingerprint") != fingerprint:
+            return False
+
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return False
+
+        try:
+            self._restore_cache_payload(data)
+        except (TypeError, KeyError, ValueError) as exc:
+            self.logger.log(f"Knowledge base cache restore failed, recomputing: {exc}")
+            return False
+        return True
+
+    def _restore_cache_payload(self, data: dict) -> None:
+        """Restore cached state, rebuilding dataclass instances from dicts."""
+        self.item_pattern_sizes = data.get("item_pattern_sizes", {})
+        self.item_sizes = data.get("item_sizes", {})
+        self.item_block_sizes = data.get("item_block_sizes", {})
+        self.weapons_list = data.get("weapons_list", [])
+        self.vehicles_properties_lists = data.get("vehicles_properties_lists", {})
+        self.vehicles_properties = data.get("vehicles_properties", {})
+        self.vehicles_fuel_properties = data.get("vehicles_fuel_properties", {})
+        self.properties_inventory_sizes = data.get("properties_inventory_sizes", {})
+        self.properties_inventory_entries = data.get("properties_inventory_entries", {})
+        self.infantry_costs = data.get("infantry_costs", {})
+        self.vehicles_costs = data.get("vehicles_costs", {})
+        self.item_weights = data.get("item_weights", {})
+        self.pickup_ammo_defaults = data.get("pickup_ammo_defaults", {})
+
+        self.breeds_inventories = {
+            breed: [BreedItemInfo(**item) for item in items]
+            for breed, items in data.get("breeds_inventories", {}).items()
+        }
+        self.vehicle_inventories = {
+            vehicle: [BreedItemInfo(**item) for item in items]
+            for vehicle, items in data.get("vehicle_inventories", {}).items()
+        }
+        self.squad_compositions = {
+            name: SquadCompositionInfo(**info)
+            for name, info in data.get("squad_compositions", {}).items()
+        }
+        # weapons_info_list is derived from weapons_list consumers at runtime;
+        # rebuild a minimal list so find_weapon_in_weapons_info_list works.
+        self.weapons_info_list = [
+            WeaponInfo(weapon_name=name, weapon_type="") for name in self.weapons_list
+        ]
+
+    def _require_path(self, path: Path, description: str) -> bool:
+        """Validate that a required game data path exists.
+
+        Unlike an assert, this is not stripped under ``python -O`` and logs
+        which specific path is missing before failing.
+
+        Args:
+            path (Path): Path that must exist
+            description (str): Human-readable description of the path
+
+        Returns:
+            bool: True if the path exists
+
+        Raises:
+            FileNotFoundError: If the path does not exist
+        """
+        if not path.exists():
+            message = f"{description} does not exist: {path}"
+            self.logger.log(message)
+            raise FileNotFoundError(message)
+        return True
+
+    def _require_non_empty(self, mapping: dict, description: str) -> bool:
+        """Validate that a parsed data mapping is not empty.
+
+        Unlike an assert, this is not stripped under ``python -O`` and logs
+        which dataset came back empty before failing.
+
+        Args:
+            mapping (dict): Parsed mapping that must contain data
+            description (str): Human-readable description of the dataset
+
+        Returns:
+            bool: True if the mapping is non-empty
+
+        Raises:
+            ValueError: If the mapping is empty
+        """
+        if not mapping:
+            message = f"{description} is empty after parsing game data."
+            self.logger.log(message)
+            raise ValueError(message)
+        return True
 
     def get_item_files_paths(self) -> list[str]:
         """Get all item file paths from game data directory.
@@ -375,6 +571,9 @@ class KnowledgeBase:
     def get_breeds_inventory_entries(self, breed_files_paths: list[str]) -> dict:
         """Extract inventory entries from breed definition files.
 
+        Uses the game-file tree parser: finds the {inventory ...} block and
+        collects its {item ...} children.
+
         Args:
             breed_files_paths (list[str]): List of breed file paths
 
@@ -406,13 +605,20 @@ class KnowledgeBase:
         return breeds_inventory_entries
 
     def get_correct_item_name(self, item_name: str) -> str:
-        """Convert raw item name to correct format for lookup.
+        """Convert a raw inventory item name to its canonical lookup name.
+
+        Canonical names are the actual item filenames under the game ``stuff``
+        directory (for example ``mgun_usa.belt.ammo`` or ``hmgun_usa.ammo``).
+        Rather than pure string heuristics, this generates candidate names and
+        validates them against the real item-name set, so a transformation is
+        only applied when it produces a name that actually exists. Names with
+        no canonical match fall back to the plain dot-join unchanged.
 
         Args:
             item_name (str): Raw item name from game files
 
         Returns:
-            str: Correctly formatted item name
+            str: Canonical item name, or the plain dot-joined name
         """
         parts = item_name.split()
         if not parts:
@@ -685,6 +891,10 @@ class KnowledgeBase:
     def get_vehicles_inventory_entries(self, vehicle_files_paths: list[str]) -> dict:
         """Extract inventory entries from vehicle files.
 
+        Uses the game-file tree parser: finds the inventory extender/block and
+        collects its {item ...} descendants, regardless of indentation or
+        capitalization of the enclosing box.
+
         Args:
             vehicle_files_paths: List of vehicle file paths
 
@@ -714,6 +924,9 @@ class KnowledgeBase:
     ) -> dict:
         """Extract invisible inventory entries from vehicle files.
 
+        Collects {weapon ...} entries from the {Weaponry ...} block using the
+        game-file tree parser.
+
         Args:
             vehicle_files_paths: List of vehicle file paths
 
@@ -722,19 +935,8 @@ class KnowledgeBase:
         """
         vehicles_invisible_inventory_entries = {}
         for file_path in vehicle_files_paths:
-            with open(file_path, "r") as file:
-                current_vehicle_inventory_entries = []
-                for line in file:
-                    if f"{{{WEAPONRY_KEYWORD}" in line:
-                        for subline in file:
-                            if (
-                                f"{{{WEAPON_KEYWORD}" in subline
-                                and f";{{{WEAPON_KEYWORD}" not in subline
-                            ):
-                                current_vehicle_inventory_entries.append(subline)
-                            if subline == "\t}\n":
-                                break
-                        break
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
+                tree = parse_game_file(file.read())
 
             vehicle_name = PurePath(file_path).stem
 
@@ -748,6 +950,9 @@ class KnowledgeBase:
     ) -> dict[str, str]:
         """Get vehicle inventory inclusions from files.
 
+        Finds the first (include "....inc") call that is not a /properties/
+        include, using the game-file tree parser.
+
         Args:
             vehicle_files_paths: List of vehicle file paths
 
@@ -755,14 +960,9 @@ class KnowledgeBase:
             dict: Vehicle inventory inclusions mapping
         """
         inclusions = {}
-        pattern = r'\(include\s+"([^"]+)\.inc"\)'
         for file_path in vehicle_files_paths:
-            with open(file_path, "r") as file:
-                content = file.read()
-                matches = re.findall(pattern, content)
-                for match in matches:
-                    if "/properties/" in match:
-                        continue
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
+                tree = parse_game_file(file.read())
 
                     vehicle_name = PurePath(file_path).stem
                     inclusions[vehicle_name] = f"{matches[0]}.inc"
@@ -887,6 +1087,101 @@ class KnowledgeBase:
                             vehicle_inventory_entry
                         )
         self.vehicle_inventories = vehicle_inventories
+
+    def get_pickup_ammo_defaults(self) -> None:
+        """Load or compute default ammo amounts for non-template (picked-up) weapons.
+
+        The defaults are derived from all parsed template inventories and cached
+        to disk so the computation only happens once. The cache is reused on
+        subsequent runs; delete the cache file to force recomputation after a
+        game data update.
+        """
+        if self.ammo_defaults_cache_path.exists():
+            try:
+                with open(
+                    self.ammo_defaults_cache_path, "r", encoding="utf-8"
+                ) as cache_file:
+                    cached_defaults = json.load(cache_file)
+                if isinstance(cached_defaults, dict) and {
+                    "soldier",
+                    "vehicle",
+                } <= set(cached_defaults):
+                    self.pickup_ammo_defaults = cached_defaults
+                    return
+                self.logger.log(
+                    "Ammo pickup defaults cache has unexpected shape, recomputing."
+                )
+            except (json.JSONDecodeError, OSError):
+                self.logger.log(
+                    "Ammo pickup defaults cache is corrupted, recomputing."
+                )
+
+        self.pickup_ammo_defaults = self._compute_pickup_ammo_defaults()
+        try:
+            with open(
+                self.ammo_defaults_cache_path, "w", encoding="utf-8"
+            ) as cache_file:
+                json.dump(self.pickup_ammo_defaults, cache_file, indent=2, sort_keys=True)
+        except OSError:
+            self.logger.log("Failed to write ammo pickup defaults cache.")
+
+    def _compute_pickup_ammo_defaults(self) -> dict[str, dict[str, int]]:
+        """Compute median, magazine-rounded default ammo amounts per unit class.
+
+        Soldier and vehicle defaults are computed separately because their
+        typical carried amounts differ by an order of magnitude. The median is
+        used instead of the mean so that outlier carriers (for example ammo
+        supply vehicles) do not skew the typical value.
+
+        Returns:
+            dict[str, dict[str, int]]: Mapping of unit class ("soldier" or
+                "vehicle") to ammo name and default refill amount
+        """
+        defaults: dict[str, dict[str, int]] = {}
+        for unit_class, inventories in (
+            ("soldier", self.breeds_inventories),
+            ("vehicle", self.vehicle_inventories),
+        ):
+            ammo_amounts: dict[str, list[int]] = {}
+            for inventory in inventories.values():
+                for item in inventory:
+                    if "ammo" not in item.game_item_name:
+                        continue
+                    ammo_amounts.setdefault(item.game_item_name, []).append(
+                        item.amount
+                    )
+
+            class_defaults: dict[str, int] = {}
+            for ammo_name, amounts in ammo_amounts.items():
+                median_amount = statistics.median(amounts)
+                class_defaults[ammo_name] = self._round_to_magazine_size(
+                    ammo_name, median_amount
+                )
+            defaults[unit_class] = class_defaults
+        return defaults
+
+    def _round_to_magazine_size(self, ammo_name: str, amount: float) -> int:
+        """Round an ammo amount to the nearest magazine/stack multiple.
+
+        The magazine/stack size is taken from the parsed item block sizes where
+        known; otherwise it defaults to 1 (no rounding effect). The result is
+        never lower than one full magazine/stack so a low median can never
+        round down to zero.
+
+        Args:
+            ammo_name (str): Normalized ammo item name
+            amount (float): Amount to round
+
+        Returns:
+            int: Rounded amount, at least one magazine/stack
+        """
+        try:
+            magazine_size = int(self.item_block_sizes.get(ammo_name, "1"))
+        except ValueError:
+            magazine_size = 1
+        magazine_size = max(magazine_size, 1)
+        rounded = int(round(amount / magazine_size)) * magazine_size
+        return max(rounded, magazine_size)
 
     def get_vehicle_properties(self) -> None:
         """Load and process vehicle properties from game files."""
