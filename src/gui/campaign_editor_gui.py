@@ -33,6 +33,9 @@ from src.constants import (
     CENTER_DIVISOR,
 )
 
+APPLICATION_VERSION = "1.0.0"
+APPLICATION_AUTHOR = "Pvt. Matusz"
+
 
 class CampaignEditorGUI:
     """Main GUI application for campaign editing tools."""
@@ -62,6 +65,7 @@ class CampaignEditorGUI:
         bg_color = style.lookup(TFRAME_STYLE, BACKGROUND_PROPERTY)
         self.master.configure(background=bg_color)
 
+        self.create_status_bar()
         parent_notebook = self.create_notebook()
 
         self.unit_manager_gui = UnitManagerGUI(parent_notebook)
@@ -78,6 +82,16 @@ class CampaignEditorGUI:
         parent_notebook = ttk.Notebook(self.master)
         parent_notebook.pack(fill=PACK_FILL_BOTH, expand=True)
         return parent_notebook
+
+    def create_status_bar(self) -> None:
+        """Create the application version and author status bar."""
+        status_label = ttk.Label(
+            self.master,
+            text=f"Version {APPLICATION_VERSION} | Created by {APPLICATION_AUTHOR}",
+            anchor=tk.W,
+            padding=(8, 4),
+        )
+        status_label.pack(side=tk.BOTTOM, fill=tk.X)
 
     def run(self) -> None:
         """Run the GUI application."""
